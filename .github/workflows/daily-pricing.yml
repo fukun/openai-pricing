@@ -37,14 +37,15 @@ jobs:
           fi
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
+      - name: Prepare static site
+        run: |
+          mkdir -p dist/data
+          cp index.html app.js styles.css dist/
+          cp data/pricing_history.jsonl dist/data/
       - name: Upload static site
         uses: actions/upload-pages-artifact@v5
         with:
-          path: |
-            index.html
-            app.js
-            styles.css
-            data/pricing_history.jsonl
+          path: dist
       - name: Publish site
         id: deployment
         uses: actions/deploy-pages@v5
