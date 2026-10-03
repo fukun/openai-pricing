@@ -2,10 +2,23 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { PROVIDERS } from './pricing_sources.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
-const template = await readFile(join(root, 'index.html'), 'utf8');
+// Content versions let browsers load updated assets after a normal refresh.
+const version = (content) => createHash('sha256').update(content).digest('hex').slice(0, 12);
+const valuesVersion = version(await readFile(join(root, 'price_values.mjs')));
+const appPath = join(root, 'app.js');
+const previousApp = await readFile(appPath, 'utf8');
+const app = previousApp.replace(/from '\.\/price_values\.mjs(?:\?v=[a-f0-9]+)?'/, `from './price_values.mjs?v=${valuesVersion}'`);
+if (app !== previousApp) await writeFile(appPath, app);
+const cssVersion = version(await readFile(join(root, 'styles.css')));
+const previousTemplate = await readFile(join(root, 'index.html'), 'utf8');
+const template = previousTemplate
+  .replace(/href="styles\.css(?:\?v=[a-f0-9]+)?"/, `href="styles.css?v=${cssVersion}"`)
+  .replace(/src="app\.js(?:\?v=[a-f0-9]+)?"/, `src="app.js?v=${version(app)}"`);
+if (template !== previousTemplate) await writeFile(join(root, 'index.html'), template);
 const descriptions = {
   deepseek: '追踪 DeepSeek 官方模型的高峰、非高峰及缓存命中价格变化。',
   claude: '追踪 Claude 官方模型的 Standard、Batch、Fast 与提示缓存价格变化。',
@@ -18,8 +31,8 @@ for (const [provider, config] of Object.entries(PROVIDERS)) {
     .replace('<body>', `<body data-provider="${provider}">`)
     .replaceAll('OpenAI GPT-5 及以上模型 API 价格历史', `${config.name} API 价格历史`)
     .replaceAll('OpenAI API 价格历史', `${config.name} API 价格历史`)
-    .replace('href="styles.css"', 'href="../styles.css"')
-    .replace('src="app.js"', 'src="../app.js"')
+    .replace('href="styles.css', 'href="../styles.css')
+    .replace('src="app.js', 'src="../app.js')
     .replace('class="brand" href="./"', 'class="brand" href="../"')
     .replace('class="brand-mark">O', `class="brand-mark">${config.name[0]}`)
     .replaceAll('https://developers.openai.com/api/docs/pricing?latest-pricing=batch', config.sourceUrl.replaceAll('&', '&amp;'))

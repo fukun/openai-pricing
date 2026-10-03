@@ -1,4 +1,4 @@
-import { numericPrice, compactPriceLabel, compactPriceValue, compactGeminiValue, officialModelOrder } from './price_values.mjs';
+import { numericPrice, compactPriceLabel, compactPriceValue, compactGeminiValue, officialModelOrder } from './price_values.mjs?v=2929c90cc31a';
 
 const PROVIDER = document.body.dataset.provider ?? 'openai';
 const IS_OPENAI = PROVIDER === 'openai';
