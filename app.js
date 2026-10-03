@@ -221,7 +221,8 @@ function renderList(rows) {
       archive.append(link);
     } else {
       archive.className = 'date-cell';
-      archive.textContent = row.archive_status === 'pending' ? '归档待重试' : '—';
+      archive.textContent = row.archive_status === 'verifying' ? '归档待生效' : row.archive_status === 'pending' ? '归档待重试' : '—';
+      if (row.archive_status === 'verifying') archive.title = 'Wayback 已返回新快照地址，但该版本暂未完成登记，访问时可能跳到旧版本。后续采集只检查该地址，验证时间和内容一致后显示查看。';
       if (row.archive_status === 'pending') archive.title = '价格数据已保存，但尚未得到与该快照一致的 Wayback 归档。后续采集会重试，不使用旧版本链接。';
     }
     if (IS_OPENAI) tr.append(date, model, mode, renderPriceCell(false), renderPriceCell(true), archive);
@@ -490,7 +491,7 @@ try {
     : todayLog?.status === 'changed' ? '今日已采集；模型或价格有变化'
       : todayLog?.status === 'failed' ? '今日采集失败'
         : `已载入 ${state.rows.length.toLocaleString('zh-CN')} 条价格记录`;
-  el('status').textContent = collectionStatus + (todayLog?.archive_status === 'pending' ? '；Wayback 归档待重试' : '');
+  el('status').textContent = collectionStatus + (todayLog?.archive_status === 'verifying' ? '；Wayback 归档待生效' : todayLog?.archive_status === 'pending' ? '；Wayback 归档待重试' : '');
 } catch (error) {
   el('status').textContent = '数据还未生成或暂时无法读取';
   const cell = document.createElement('td');

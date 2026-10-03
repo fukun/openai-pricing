@@ -196,6 +196,7 @@ try {
 
   let snapshotRows = changed ? todaysRows.map((row) => ({ ...row, collected_at_utc: timestamp, date_utc: date })) : lastSnapshot;
   let waybackUrl = changed ? undefined : lastSnapshot.find((row) => row.wayback_url)?.wayback_url;
+  let candidateUrl = changed ? undefined : lastSnapshot.find((row) => row.candidate_archive_url)?.candidate_archive_url;
   let archiveError;
   let archiveCorrection = false;
   let source;
@@ -213,18 +214,32 @@ try {
       await writeFile(resolve(dirname(OUTPUT), '..', sourcePath), source);
       snapshotRows = snapshotRows.map((row) => ({ ...row, source_snapshot: sourcePath }));
     }
-    if (waybackUrl) {
-      try { await verifyArchive(waybackUrl, ARCHIVE_PAGE_URL, { source }); }
-      catch { waybackUrl = undefined; archiveCorrection = true; }
+    const existingUrl = waybackUrl || candidateUrl;
+    if (existingUrl) {
+      try { waybackUrl = await verifyArchive(existingUrl, ARCHIVE_PAGE_URL, { source }); candidateUrl = undefined; }
+      catch (error) {
+        archiveCorrection = true;
+        waybackUrl = undefined;
+        candidateUrl = error.code === 'WAYBACK_REPLAY_PENDING' ? existingUrl : undefined;
+        archiveError = error.message;
+      }
     }
-    if (!waybackUrl) waybackUrl = await archiveSource(ARCHIVE_PAGE_URL, { source });
+    if (!waybackUrl && !candidateUrl) {
+      waybackUrl = await archiveSource(ARCHIVE_PAGE_URL, { source });
+      archiveError = undefined;
+    }
   } catch (error) {
     archiveError = error.message;
     if (waybackUrl) archiveCorrection = true;
     waybackUrl = undefined;
+    candidateUrl = error.candidate_url || candidateUrl;
   }
-  snapshotRows = snapshotRows.map(({ wayback_url, ...row }) => ({ ...row,
-    archive_status: waybackUrl ? 'saved' : 'pending', ...(waybackUrl ? { wayback_url: waybackUrl } : {}) }));
+  const archiveStatus = waybackUrl ? 'saved' : candidateUrl ? 'verifying' : 'pending';
+  const oldArchive = JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]));
+  snapshotRows = snapshotRows.map(({ wayback_url, candidate_archive_url, ...row }) => ({ ...row,
+    archive_status: archiveStatus, ...(waybackUrl ? { wayback_url: waybackUrl } : {}),
+    ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
+  archiveCorrection ||= oldArchive !== JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]));
   const repaired = !lastSnapshot.some((row) => row.wayback_url) && waybackUrl;
   if (changed || archiveCorrection || repaired) {
     const keyed = new Map();
@@ -243,8 +258,9 @@ try {
     model_count: new Set(todaysRows.map((row) => row.model)).size,
     model_order: [...new Set(todaysRows.map((row) => row.model))],
     pricing_rows: changed ? todaysRows.length : 0, latest_snapshot_date: changed ? date : lastSnapshotDate,
-    archive_status: waybackUrl ? 'saved' : 'pending',
-    ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(archiveError ? { archive_error: archiveError } : {}),
+    archive_status: archiveStatus,
+    ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}),
+    ...(archiveError ? { archive_error: archiveError } : {}),
   });
   console.log(`OpenAI: ${changed ? 'prices changed; saved snapshot' : 'prices unchanged; checked today'}; Wayback ${waybackUrl ? 'verified' : 'pending retry'}.`);
 

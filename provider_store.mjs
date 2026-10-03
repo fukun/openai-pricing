@@ -41,7 +41,11 @@ export async function archiveSource(sourceUrl, options = {}) {
   if (url.hostname !== 'web.archive.org' || !/^\/web\/\d{14}(?:[a-z_]+)?\/https?:\/\//.test(url.pathname)) {
     throw new Error('Save Page Now has not returned a completed capture.');
   }
-  return verifyArchive(url.href, sourceUrl, options);
+  try { return await verifyArchive(url.href, sourceUrl, options); }
+  catch (error) {
+    if (error.code === 'WAYBACK_REPLAY_PENDING') error.candidate_url = url.href;
+    throw error;
+  }
 }
 
 export async function verifyArchive(archiveUrl, sourceUrl, { provider, rows, source } = {}) {
@@ -60,20 +64,29 @@ export async function verifyArchive(archiveUrl, sourceUrl, { provider, rows, sou
   const replayUrl = `https://web.archive.org/web/${capture[1]}id_/${capture[2]}${url.search}`;
   const replay = await fetch(replayUrl, { signal: AbortSignal.timeout(40_000) });
   const actual = new URL(replay.url).pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
-  if (!replay.ok || !actual || actual[1] !== capture[1]) {
-    throw new Error('Wayback capture is unavailable or redirects to an older capture.');
+  if (!replay.ok || !actual) {
+    const error = new Error('Wayback capture is not yet available at its requested timestamp.');
+    error.code = 'WAYBACK_REPLAY_PENDING';
+    throw error;
   }
   if (canonicalTarget(actual[2] + new URL(replay.url).search) !== expectedTarget) {
     throw new Error('Wayback replay targets a different source URL.');
   }
   const body = await replay.text();
-  if (provider && rows && snapshotSignature(PARSERS[provider](body)) !== snapshotSignature(rows)) {
-    throw new Error('Wayback capture prices/models do not match the collected source.');
+  let matches = false;
+  try {
+    if (provider && rows) matches = snapshotSignature(PARSERS[provider](body)) === snapshotSignature(rows);
+    else if (source !== undefined) matches = body.replaceAll('\r\n', '\n').trim() === source.replaceAll('\r\n', '\n').trim();
+  } catch { matches = false; }
+  if (!matches) {
+    const error = new Error('Wayback replay content does not match the collected snapshot.');
+    // An older fallback may disappear once the newly saved capture is indexed.
+    if (actual[1] !== capture[1]) error.code = 'WAYBACK_REPLAY_PENDING';
+    throw error;
   }
-  if (source !== undefined && body.replaceAll('\r\n', '\n').trim() !== source.replaceAll('\r\n', '\n').trim()) {
-    throw new Error('Wayback capture content does not match the collected Markdown.');
-  }
-  return url.href;
+  // Older captures are usable when their verified content matches exactly.
+  return `https://web.archive.org/web/${actual[1]}/${actual[2]}${new URL(replay.url).search}`;
+
 }
 
 export async function recordCollection({ provider, rows, source, now = new Date(), dataDirectory, archive = archiveSource, verify = verifyArchive }) {
@@ -98,25 +111,27 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   }
   let archiveError;
   let waybackUrl = snapshot.find((row) => row.wayback_url)?.wayback_url;
-  let archiveCorrection = false;
-  if (waybackUrl) {
-    try { await verify(waybackUrl, config.archiveUrl, { provider, rows }); }
+  let candidateUrl = snapshot.find((row) => row.candidate_archive_url)?.candidate_archive_url;
+  const existingUrl = waybackUrl || candidateUrl;
+  if (existingUrl) {
+    try { waybackUrl = await verify(existingUrl, config.archiveUrl, { provider, rows }) || existingUrl; candidateUrl = undefined; }
     catch (error) {
-      archiveCorrection = true;
       waybackUrl = undefined;
-      snapshot = snapshot.map(({ wayback_url, ...row }) => row);
+      candidateUrl = error.code === 'WAYBACK_REPLAY_PENDING' ? existingUrl : undefined;
       archiveError = error.message;
     }
   }
-  // An unchanged price check only retries an earlier failed archive. It never
-  // creates a new price snapshot or a new local source copy.
-  if (!waybackUrl) {
+  // A returned capture awaiting replay is checked again later, without saving again.
+  if (!waybackUrl && !candidateUrl) {
     try { waybackUrl = await archive(config.archiveUrl, { provider, rows }); archiveError = undefined; }
-    catch (error) { archiveError = error.message; }
+    catch (error) { archiveError = error.message; candidateUrl = error.candidate_url; }
   }
-  snapshot = snapshot.map((row) => ({ ...row, archive_status: waybackUrl ? 'saved' : 'pending',
-    ...(waybackUrl ? { wayback_url: waybackUrl } : {}) }));
-  if (changed || archiveCorrection || (!latest.some((row) => row.wayback_url) && waybackUrl)) {
+  const archiveStatus = waybackUrl ? 'saved' : candidateUrl ? 'verifying' : 'pending';
+  const previousArchive = snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]);
+  snapshot = snapshot.map(({ wayback_url, candidate_archive_url, ...row }) => ({ ...row, archive_status: archiveStatus,
+    ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
+  const archiveChanged = JSON.stringify(previousArchive) !== JSON.stringify(snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]));
+  if (changed || archiveChanged) {
     const merged = new Map();
     const retained = changed ? previous.filter((row) => row.date_utc !== date) : previous;
     for (const row of [...retained, ...snapshot]) {
@@ -130,8 +145,9 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   const log = { provider, date_utc: date, collected_at_utc: timestamp, status: changed ? 'changed' : 'unchanged',
     model_count: new Set(rows.map((row) => row.model)).size,
     model_order: [...new Set(rows.map((row) => row.model))], pricing_rows: changed ? rows.length : 0,
-    latest_snapshot_date: changed ? date : latestDate, archive_status: waybackUrl ? 'saved' : 'pending',
-    ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(archiveError ? { archive_error: archiveError } : {}) };
+    latest_snapshot_date: changed ? date : latestDate, archive_status: archiveStatus,
+    ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}),
+    ...(archiveError ? { archive_error: archiveError } : {}) };
   await saveLog(directory, log);
   return log;
 }
