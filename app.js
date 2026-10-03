@@ -217,11 +217,12 @@ function renderList(rows) {
       link.href = row.wayback_url;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.textContent = IS_OPENAI ? '查看 ↗' : 'Wayback ↗';
+      link.textContent = '查看';
       archive.append(link);
     } else {
       archive.className = 'date-cell';
       archive.textContent = row.archive_status === 'pending' ? '归档待重试' : '—';
+      if (row.archive_status === 'pending') archive.title = '价格数据已保存，但尚未得到与该快照一致的 Wayback 归档。后续采集会重试，不使用旧版本链接。';
     }
     if (IS_OPENAI) tr.append(date, model, mode, renderPriceCell(false), renderPriceCell(true), archive);
     else tr.append(date, model, mode, renderPriceCell(null), archive);
