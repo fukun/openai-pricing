@@ -38,7 +38,12 @@
             <button class="view-button" data-view="chart" role="tab" aria-selected="false">⌁ <span>图表</span></button>
           </div>
           <div class="filters">
-            <label>模型<select id="model-filter"><option value="all">全部模型</option></select></label>
+            <div class="model-filter">
+              <label for="model-search">搜索模型</label>
+              <input id="model-search" type="search" placeholder="输入模型名" autocomplete="off">
+              <label for="model-filter">模型</label>
+              <select id="model-filter"><option value="all">全部模型</option></select>
+            </div>
             <label>价格类型<select id="mode-filter"><option value="all">全部类型</option><option>Standard</option><option>Batch</option></select></label>
             <label>从日期<input id="from-filter" type="date"></label>
             <label>到日期<input id="to-filter" type="date"></label>
@@ -48,7 +53,7 @@
         <div id="list-view" class="view-panel">
           <div class="panel-heading">
             <div><h2>价格记录</h2><p>按日期查看每日采集到的价格行</p></div>
-            <span id="visible-count" class="count-pill">0 条</span>
+            <div class="panel-actions"><span id="visible-count" class="count-pill">0 条</span><button id="export-csv" class="export-button" type="button">导出 CSV</button></div>
           </div>
           <div class="table-wrap">
             <table>

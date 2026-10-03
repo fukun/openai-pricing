@@ -4,6 +4,7 @@ const COLORS = ['#17855d','#477aa4','#d08336','#8268ad','#d05c65','#358e9b','#a7
 const state = { rows: [], view: 'list', metric: null };
 const el = (id) => document.getElementById(id);
 const modelFilter = el('model-filter');
+const modelSearch = el('model-search');
 const modeFilter = el('mode-filter');
 const fromFilter = el('from-filter');
 const toFilter = el('to-filter');
@@ -37,6 +38,17 @@ function filteredRows() {
     && (modeFilter.value === 'all' || row.pricing_mode === modeFilter.value));
 }
 
+function renderModelOptions() {
+  const query = modelSearch.value.trim().toLocaleLowerCase();
+  const selected = modelFilter.value;
+  const models = [...new Set(state.rows.map((row) => row.model))]
+    .filter((model) => model.toLocaleLowerCase().includes(query))
+    .sort((a, b) => a.localeCompare(b));
+  modelFilter.replaceChildren(new Option('全部模型', 'all'));
+  for (const model of models) modelFilter.add(new Option(model, model));
+  modelFilter.value = models.includes(selected) ? selected : 'all';
+}
+
 function metricOptions(rows) {
   const metrics = new Set();
   for (const row of rows) {
@@ -67,10 +79,7 @@ function renderSummary() {
   el('model-count').textContent = String(models.size);
   el('record-count').textContent = state.rows.length.toLocaleString('zh-CN');
   el('latest-date').textContent = dates.at(-1) ?? '—';
-  modelFilter.replaceChildren(new Option('全部模型', 'all'));
-  for (const model of [...models].sort((a, b) => a.localeCompare(b))) {
-    modelFilter.add(new Option(model, model));
-  }
+  renderModelOptions();
 }
 
 function renderList(rows) {
@@ -112,6 +121,34 @@ function renderList(rows) {
     tr.append(date, model, mode, prices);
     return tr;
   }));
+}
+
+function csvCell(value) {
+  return `"${String(value ?? '').replaceAll('"', '""')}"`;
+}
+
+function exportCsv(rows) {
+  if (!rows.length) return;
+  const priceColumns = [...new Set(rows.flatMap((row) => row.prices.slice(1)
+    .map((_, offset) => priceLabel(row.table_headers, offset + 1))))];
+  const headers = ['日期', '模型', '官方原始模型标签', '价格类型', ...priceColumns];
+  const lines = [headers, ...rows.map((row) => {
+    const valuesByLabel = new Map();
+    row.prices.slice(1).forEach((value, offset) => {
+      valuesByLabel.set(priceLabel(row.table_headers, offset + 1), value);
+    });
+    return [row.date_utc, row.model, row.source_model_label ?? row.model, row.pricing_mode,
+      ...priceColumns.map((label) => valuesByLabel.get(label) ?? '')];
+  })].map((line) => line.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `openai-pricing-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function drawChart(rows) {
@@ -223,7 +260,9 @@ function setView(view) {
   if (view === 'chart') render();
 }
 
+modelSearch.addEventListener('input', () => { renderModelOptions(); render(); });
 for (const filter of [modelFilter, modeFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
+el('export-csv').addEventListener('click', () => exportCsv(filteredRows()));
 el('metric-filter').addEventListener('change', (event) => { state.metric = event.target.value; drawChart(filteredRows()); });
 document.querySelectorAll('.view-button').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
 window.addEventListener('resize', () => { if (state.view === 'chart') drawChart(filteredRows()); });

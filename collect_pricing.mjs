@@ -77,10 +77,13 @@ function modelRows(html, { longPrices, latestModels }) {
     if (!Array.isArray(encodedRows)) continue;
     for (const encodedRow of encodedRows) {
       const values = encodedRow?.[1]?.map(unpackPageValue);
-      const model = values?.[0]?.replace(/^`|`$/g, '');
-      if (!MODEL_NAME.test(model ?? '')) continue;
+      const sourceModelLabel = values?.[0]?.replace(/^`|`$/g, '');
+      if (!MODEL_NAME.test(sourceModelLabel ?? '')) continue;
 
-      const normalizedModel = model.replace(/ \(.+$/, '');
+      // Keep the canonical model identifier separate from source annotations
+      // embedded in the cell (for example, a context-length pricing condition).
+      const model = sourceModelLabel.replace(/\s+\(<272K context length\)$/i, '');
+      const normalizedModel = model;
       const isLatest = latestModels.has(normalizedModel);
       const shortValues = values.slice(1);
       let tableHeaders;
@@ -107,6 +110,7 @@ function modelRows(html, { longPrices, latestModels }) {
 
       records.push({
         model,
+        ...(sourceModelLabel !== model ? { source_model_label: sourceModelLabel } : {}),
         pricing_mode: mode[0].toUpperCase() + mode.slice(1),
         table_headers: tableHeaders,
         prices,
@@ -150,7 +154,15 @@ const todaysRows = await getPrices();
 let previousRows = [];
 try {
   const content = await readFile(OUTPUT, 'utf8');
-  previousRows = content.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  previousRows = content.split(/\r?\n/).filter(Boolean).map((line) => {
+    const row = JSON.parse(line);
+    const canonicalModel = row.model?.replace(/\s+\(<272K context length\)$/i, '');
+    if (canonicalModel && canonicalModel !== row.model) {
+      row.source_model_label ??= row.model;
+      row.model = canonicalModel;
+    }
+    return row;
+  });
 } catch (error) {
   if (error.code !== 'ENOENT') throw error;
 }
