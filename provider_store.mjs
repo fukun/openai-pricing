@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PROVIDERS } from './pricing_sources.mjs';
+import { PROVIDERS, PARSERS } from './pricing_sources.mjs';
 
 export async function readJsonLines(file) {
   try { return (await readFile(file, 'utf8')).split(/\r?\n/).filter(Boolean).map(JSON.parse); }
@@ -27,7 +27,7 @@ export async function saveLog(directory, entry) {
   await writeJsonLines(file, [...byDate.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc)));
 }
 
-export async function archiveSource(sourceUrl) {
+export async function archiveSource(sourceUrl, { provider, rows } = {}) {
   const response = await fetch(`https://web.archive.org/save/${sourceUrl}`, {
     redirect: 'manual', signal: AbortSignal.timeout(40_000),
     headers: { 'user-agent': 'model-pricing-history/1.0 (+https://github.com/fukun/openai-pricing)' },
@@ -40,6 +40,22 @@ export async function archiveSource(sourceUrl) {
   const url = new URL(location, 'https://web.archive.org/');
   if (url.hostname !== 'web.archive.org' || !/^\/web\/\d{14}(?:[a-z_]+)?\/https?:\/\//.test(url.pathname)) {
     throw new Error('Save Page Now has not returned a completed capture.');
+  }
+  const expectedTarget = new URL(sourceUrl).href;
+  const capture = url.pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
+  if (new URL(capture[2] + url.search).href !== expectedTarget) throw new Error('Wayback capture targets a different source URL.');
+  const replayUrl = `https://web.archive.org/web/${capture[1]}id_/${sourceUrl}`;
+  const replay = await fetch(replayUrl, { signal: AbortSignal.timeout(40_000) });
+  const actual = new URL(replay.url).pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
+  if (!replay.ok || !actual || actual[1] !== capture[1]) {
+    throw new Error('Wayback capture is unavailable or redirects to an older capture.');
+  }
+  if (new URL(actual[2] + new URL(replay.url).search).href !== expectedTarget) {
+    throw new Error('Wayback replay targets a different source URL.');
+  }
+  const body = await replay.text();
+  if (provider && rows && snapshotSignature(PARSERS[provider](body)) !== snapshotSignature(rows)) {
+    throw new Error('Wayback capture prices/models do not match the collected source.');
   }
   return url.href;
 }
@@ -69,7 +85,7 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   // An unchanged price check only retries an earlier failed archive. It never
   // creates a new price snapshot or a new local source copy.
   if (!waybackUrl) {
-    try { waybackUrl = await archive(config.archiveUrl); }
+    try { waybackUrl = await archive(config.archiveUrl, { provider, rows }); }
     catch (error) { archiveError = error.message; }
   }
   snapshot = snapshot.map((row) => ({ ...row, archive_status: waybackUrl ? 'saved' : 'pending',
