@@ -79,7 +79,7 @@ function renderModelOptions(query = '') {
     empty.textContent = '没有匹配的模型';
     modelOptions.append(empty);
   }
-  highlightedModelOption = 0;
+  highlightedModelOption = query.trim() ? 0 : Math.max(0, options.findIndex((option) => option.value === selectedModel));
   updateModelHighlight();
 }
 
@@ -96,8 +96,19 @@ function setModelOptionsOpen(open) {
   modelFilter.setAttribute('aria-expanded', String(open));
   if (!open) {
     modelFilter.value = selectedModel;
+    modelFilter.placeholder = '搜索或选择模型';
     modelFilter.removeAttribute('aria-activedescendant');
   }
+}
+
+function openModelOptions() {
+  // The selected value and the text used to search options are separate states.
+  modelFilter.value = '';
+  modelFilter.placeholder = selectedModel || '搜索或选择模型';
+  renderModelOptions();
+  setModelOptionsOpen(true);
+  const selected = modelOptions.querySelector('[aria-selected="true"]');
+  modelOptions.scrollTop = selected ? Math.max(0, selected.offsetTop - modelOptions.clientHeight / 2) : 0;
 }
 
 function chooseModel(model) {
@@ -418,10 +429,8 @@ document.addEventListener('pointerdown', (event) => {
 window.addEventListener('resize', () => { if (activeHelp) hidePriceHelp(activeHelp); });
 document.querySelector('.table-wrap').addEventListener('scroll', () => { if (activeHelp) hidePriceHelp(activeHelp); });
 
-modelFilter.addEventListener('focus', () => {
-  renderModelOptions(modelFilter.value);
-  setModelOptionsOpen(true);
-});
+modelFilter.addEventListener('focus', openModelOptions);
+modelFilter.addEventListener('click', () => { if (modelOptions.hidden) openModelOptions(); });
 modelFilter.addEventListener('input', () => {
   renderModelOptions(modelFilter.value);
   setModelOptionsOpen(true);
@@ -431,8 +440,7 @@ modelFilter.addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault();
     if (modelOptions.hidden) {
-      renderModelOptions(modelFilter.value);
-      setModelOptionsOpen(true);
+      openModelOptions();
     } else if (options.length) {
       const step = event.key === 'ArrowDown' ? 1 : -1;
       highlightedModelOption = (highlightedModelOption + step + options.length) % options.length;
