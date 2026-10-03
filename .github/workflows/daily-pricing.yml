@@ -1,0 +1,44 @@
+name: Collect OpenAI model pricing
+
+on:
+  schedule:
+    # 08:00 China Standard Time (UTC+8), every day.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Collect Standard and Batch prices
+        run: node collect_pricing.mjs
+      - name: Save updated history
+        run: |
+          if ! git diff --quiet -- data/pricing_history.jsonl; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/pricing_history.jsonl
+            git commit -m "Record OpenAI model pricing for $(date -u +%F)"
+            git push
+          fi
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - name: Publish site
+        id: deployment
+        uses: actions/deploy-pages@v4
