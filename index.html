@@ -40,8 +40,10 @@
           <div class="filters">
             <div class="model-filter">
               <label for="model-filter">模型</label>
-              <input id="model-filter" type="search" list="model-options" placeholder="搜索或选择模型" autocomplete="off">
-              <datalist id="model-options"></datalist>
+              <div id="model-picker" class="model-picker">
+                <input id="model-filter" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="model-options" placeholder="搜索或选择模型" autocomplete="off">
+                <div id="model-options" class="model-options" role="listbox" hidden></div>
+              </div>
             </div>
             <label>价格类型<select id="mode-filter"><option value="all">全部类型</option><option>Standard</option><option>Batch</option></select></label>
             <label>从日期<input id="from-filter" type="date"></label>

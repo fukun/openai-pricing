@@ -6,9 +6,12 @@ const state = { rows: [], collectionLog: [], view: 'list', metric: null };
 const el = (id) => document.getElementById(id);
 const modelFilter = el('model-filter');
 const modelOptions = el('model-options');
+const modelPicker = el('model-picker');
 const modeFilter = el('mode-filter');
 const fromFilter = el('from-filter');
 const toFilter = el('to-filter');
+let selectedModel = '';
+let highlightedModelOption = 0;
 
 function parseData(text) {
   return text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
@@ -34,20 +37,62 @@ function priceColumnIndex(row, label) {
 }
 
 function filteredRows() {
-  const query = modelFilter.value.trim().toLocaleLowerCase();
   return dateRange(state.rows).filter((row) =>
-    (!query || row.model.toLocaleLowerCase().includes(query))
+    (!selectedModel || row.model === selectedModel)
     && (modeFilter.value === 'all' || row.pricing_mode === modeFilter.value));
 }
 
-function renderModelOptions() {
+function renderModelOptions(query = '') {
   const models = [...new Set(state.rows.map((row) => row.model))]
-    .sort((a, b) => a.localeCompare(b));
-  modelOptions.replaceChildren(...models.map((model) => {
-    const option = document.createElement('option');
-    option.value = model;
+    .sort((a, b) => a.localeCompare(b))
+    .filter((model) => model.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const allModelsOption = { label: '全部模型', value: '' };
+  const options = query.trim()
+    ? [...models.map((model) => ({ label: model, value: model })), ...(models.length ? [allModelsOption] : [])]
+    : [allModelsOption, ...models.map((model) => ({ label: model, value: model }))];
+  modelOptions.replaceChildren(...options.map(({ label, value }, index) => {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.id = `model-option-${index}`;
+    option.className = 'model-option';
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', String(value === selectedModel));
+    option.dataset.model = value;
+    option.textContent = label;
     return option;
   }));
+  if (!options.length) {
+    const empty = document.createElement('div');
+    empty.className = 'model-options-empty';
+    empty.textContent = '没有匹配的模型';
+    modelOptions.append(empty);
+  }
+  highlightedModelOption = 0;
+  updateModelHighlight();
+}
+
+function updateModelHighlight() {
+  const options = [...modelOptions.querySelectorAll('[role="option"]')];
+  options.forEach((option, index) => option.classList.toggle('highlighted', index === highlightedModelOption));
+  const active = options[highlightedModelOption];
+  if (active) modelFilter.setAttribute('aria-activedescendant', active.id);
+  else modelFilter.removeAttribute('aria-activedescendant');
+}
+
+function setModelOptionsOpen(open) {
+  modelOptions.hidden = !open;
+  modelFilter.setAttribute('aria-expanded', String(open));
+  if (!open) {
+    modelFilter.value = selectedModel;
+    modelFilter.removeAttribute('aria-activedescendant');
+  }
+}
+
+function chooseModel(model) {
+  selectedModel = model;
+  modelFilter.value = model;
+  setModelOptionsOpen(false);
+  render();
 }
 
 function metricOptions(rows) {
@@ -293,7 +338,45 @@ function setView(view) {
   if (view === 'chart') render();
 }
 
-modelFilter.addEventListener('input', render);
+modelFilter.addEventListener('focus', () => {
+  renderModelOptions(modelFilter.value);
+  setModelOptionsOpen(true);
+});
+modelFilter.addEventListener('input', () => {
+  renderModelOptions(modelFilter.value);
+  setModelOptionsOpen(true);
+});
+modelFilter.addEventListener('keydown', (event) => {
+  const options = [...modelOptions.querySelectorAll('[role="option"]')];
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (modelOptions.hidden) {
+      renderModelOptions(modelFilter.value);
+      setModelOptionsOpen(true);
+    } else if (options.length) {
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      highlightedModelOption = (highlightedModelOption + step + options.length) % options.length;
+      updateModelHighlight();
+    }
+  } else if (event.key === 'Enter' && !modelOptions.hidden && options.length) {
+    event.preventDefault();
+    chooseModel(options[highlightedModelOption]?.dataset.model ?? '');
+  } else if (event.key === 'Escape' && !modelOptions.hidden) {
+    event.preventDefault();
+    setModelOptionsOpen(false);
+  }
+});
+modelOptions.addEventListener('mousedown', (event) => event.preventDefault());
+modelOptions.addEventListener('click', (event) => {
+  const option = event.target.closest('[role="option"]');
+  if (option) chooseModel(option.dataset.model ?? '');
+});
+modelOptions.addEventListener('mousemove', (event) => {
+  const options = [...modelOptions.querySelectorAll('[role="option"]')];
+  const index = options.indexOf(event.target.closest('[role="option"]'));
+  if (index >= 0) { highlightedModelOption = index; updateModelHighlight(); }
+});
+modelFilter.addEventListener('blur', () => setModelOptionsOpen(false));
 for (const filter of [modeFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
 el('export-csv').addEventListener('click', () => exportCsv(filteredRows()));
 el('metric-filter').addEventListener('change', (event) => { state.metric = event.target.value; drawChart(filteredRows()); });
