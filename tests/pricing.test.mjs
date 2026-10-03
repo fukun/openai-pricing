@@ -98,7 +98,7 @@ test('unchanged daily checks leave history/source bytes unchanged and write a da
   try {
     let captures = 0;
     const archive = async () => { captures++; return 'https://web.archive.org/web/20261003000000/https://example.com'; };
-    const args = { provider: 'claude', rows: [priceRow()], source: 'source', dataDirectory: directory, archive };
+    const args = { verify: async () => {}, provider: 'claude', rows: [priceRow()], source: 'source', dataDirectory: directory, archive };
     await recordCollection({ ...args, now: new Date('2026-10-03T00:00:00Z') });
     const file = join(directory, 'claude/pricing_history.jsonl');
     const history = await readFile(file, 'utf8');
@@ -114,7 +114,7 @@ test('unchanged daily checks leave history/source bytes unchanged and write a da
 test('failed Wayback saves prices; retry repairs that capture without another daily snapshot', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pricing-archive-'));
   try {
-    const args = { provider: 'claude', rows: [priceRow()], source: 'source', dataDirectory: directory };
+    const args = { verify: async () => {}, provider: 'claude', rows: [priceRow()], source: 'source', dataDirectory: directory };
     const first = await recordCollection({ ...args, now: new Date('2026-10-03T00:00:00Z'),
       archive: async () => { throw new Error('HTTP 429'); } });
     assert.equal(first.status, 'changed');
@@ -133,7 +133,7 @@ test('failed Wayback saves prices; retry repairs that capture without another da
 test('a same-day model removal replaces that daily snapshot; older dates remain intact', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pricing-models-'));
   try {
-    const args = { provider: 'claude', source: 'source', dataDirectory: directory,
+    const args = { verify: async () => {}, provider: 'claude', source: 'source', dataDirectory: directory,
       archive: async () => 'https://web.archive.org/web/20261003000000/https://example.com' };
     await recordCollection({ ...args, rows: [priceRow('a'), priceRow('b')], now: new Date('2026-10-02T00:00:00Z') });
     await recordCollection({ ...args, rows: [priceRow('a', '$2'), priceRow('b')], now: new Date('2026-10-03T00:00:00Z') });

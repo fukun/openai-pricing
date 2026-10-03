@@ -3,12 +3,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { archiveSource, verifyArchive } from './provider_store.mjs';
 
 const PAGE_URL = 'https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
 const ARCHIVE_PAGE_URL = 'https://developers.openai.com/api/docs/pricing.md';
 const OUTPUT = resolve(dirname(fileURLToPath(import.meta.url)), 'data/pricing_history.jsonl');
 const LOG_OUTPUT = resolve(dirname(fileURLToPath(import.meta.url)), 'data/collection_log.jsonl');
-const WAYBACK_SAVE_URL = 'https://web.archive.org/save/';
 const MODEL_NAME = /^gpt-(?:5|[6-9]|[1-9]\d)(?:[.-]|$)/i;
 const MODES = ['Standard', 'Batch'];
 
@@ -177,21 +177,6 @@ function snapshotSignature(rows) {
   return JSON.stringify(snapshot.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
 }
 
-async function archivePricingPage() {
-  const response = await fetch(`${WAYBACK_SAVE_URL}${ARCHIVE_PAGE_URL}`, {
-    redirect: 'manual',
-    headers: { 'user-agent': 'openai-pricing-history/1.0 (+https://developers.openai.com/api/docs/pricing)' },
-    signal: AbortSignal.timeout(120_000),
-  });
-  const location = response.headers.get('location');
-  if (response.status < 300 || response.status >= 400 || !location) {
-    throw new Error(`Wayback Save Page Now returned HTTP ${response.status}`);
-  }
-  const waybackUrl = new URL(location, WAYBACK_SAVE_URL).href;
-  if (!waybackUrl.includes('/web/')) throw new Error(`Wayback returned an unexpected archive URL: ${waybackUrl}`);
-  return waybackUrl;
-}
-
 const now = new Date();
 const timestamp = now.toISOString();
 const date = timestamp.slice(0, 10);
@@ -209,50 +194,60 @@ try {
   const lastSnapshot = previousRows.filter((row) => row.date_utc === lastSnapshotDate);
   const changed = !lastSnapshot.length || snapshotSignature(lastSnapshot) !== snapshotSignature(todaysRows);
 
-  if (!changed) {
-    const waybackUrl = lastSnapshot.find((row) => row.wayback_url)?.wayback_url;
-    await writeCollectionLog({
-      collected_at_utc: timestamp,
-      date_utc: date,
-      status: 'unchanged',
-      model_count: new Set(todaysRows.map((row) => row.model)).size,
-      model_order: [...new Set(todaysRows.map((row) => row.model))],
-      pricing_rows: 0,
-      latest_snapshot_date: lastSnapshotDate,
-      ...(waybackUrl ? { wayback_url: waybackUrl } : {}),
-    });
-    console.log(`Checked ${todaysRows.length} GPT-5+ pricing rows on ${date}; models and prices are unchanged. Skipped price history and Wayback archive.`);
-  } else {
-    const waybackUrl = await archivePricingPage();
-    const snapshotRows = todaysRows.map((row) => ({
-      collected_at_utc: timestamp,
-      date_utc: date,
-      ...row,
-      wayback_url: waybackUrl,
-    }));
+  let snapshotRows = changed ? todaysRows.map((row) => ({ ...row, collected_at_utc: timestamp, date_utc: date })) : lastSnapshot;
+  let waybackUrl = changed ? undefined : lastSnapshot.find((row) => row.wayback_url)?.wayback_url;
+  let archiveError;
+  let archiveCorrection = false;
+  let source;
+  try {
+    const localSource = !changed && lastSnapshot.find((row) => row.source_snapshot)?.source_snapshot;
+    if (localSource) source = await readFile(resolve(dirname(OUTPUT), '..', localSource), 'utf8');
+    else {
+      const response = await fetch(ARCHIVE_PAGE_URL, { signal: AbortSignal.timeout(60_000) });
+      if (!response.ok) throw new Error(`Markdown source returned HTTP ${response.status}`);
+      source = await response.text();
+    }
+    if (changed) {
+      const sourcePath = `data/sources/${timestamp.replaceAll(':', '-')}.md`;
+      await mkdir(resolve(dirname(OUTPUT), 'sources'), { recursive: true });
+      await writeFile(resolve(dirname(OUTPUT), '..', sourcePath), source);
+      snapshotRows = snapshotRows.map((row) => ({ ...row, source_snapshot: sourcePath }));
+    }
+    if (waybackUrl) {
+      try { await verifyArchive(waybackUrl, ARCHIVE_PAGE_URL, { source }); }
+      catch { waybackUrl = undefined; archiveCorrection = true; }
+    }
+    if (!waybackUrl) waybackUrl = await archiveSource(ARCHIVE_PAGE_URL, { source });
+  } catch (error) {
+    archiveError = error.message;
+    if (waybackUrl) archiveCorrection = true;
+    waybackUrl = undefined;
+  }
+  snapshotRows = snapshotRows.map(({ wayback_url, ...row }) => ({ ...row,
+    archive_status: waybackUrl ? 'saved' : 'pending', ...(waybackUrl ? { wayback_url: waybackUrl } : {}) }));
+  const repaired = !lastSnapshot.some((row) => row.wayback_url) && waybackUrl;
+  if (changed || archiveCorrection || repaired) {
     const keyed = new Map();
-    for (const row of [...previousRows, ...snapshotRows]) {
+    const retained = changed ? previousRows.filter((row) => row.date_utc !== date) : previousRows;
+    for (const row of [...retained, ...snapshotRows]) {
       const key = [row.date_utc, row.model, row.pricing_mode, JSON.stringify(row.table_headers)].join('\u0000');
       keyed.set(key, row);
     }
     await mkdir(dirname(OUTPUT), { recursive: true });
-    const history = [...keyed.values()].sort((a, b) =>
-      a.date_utc.localeCompare(b.date_utc)
-      || a.model.localeCompare(b.model)
-      || a.pricing_mode.localeCompare(b.pricing_mode));
+    const history = [...keyed.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc)
+      || a.model.localeCompare(b.model) || a.pricing_mode.localeCompare(b.pricing_mode));
     await writeFile(OUTPUT, `${history.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
-    await writeCollectionLog({
-      collected_at_utc: timestamp,
-      date_utc: date,
-      status: 'changed',
-      model_count: new Set(todaysRows.map((row) => row.model)).size,
-      model_order: [...new Set(todaysRows.map((row) => row.model))],
-      pricing_rows: todaysRows.length,
-      latest_snapshot_date: date,
-      wayback_url: waybackUrl,
-    });
-    console.log(`Detected model or price changes; saved ${todaysRows.length} pricing rows and archived ${ARCHIVE_PAGE_URL} to ${waybackUrl}`);
   }
+  await writeCollectionLog({
+    collected_at_utc: timestamp, date_utc: date, status: changed ? 'changed' : 'unchanged',
+    model_count: new Set(todaysRows.map((row) => row.model)).size,
+    model_order: [...new Set(todaysRows.map((row) => row.model))],
+    pricing_rows: changed ? todaysRows.length : 0, latest_snapshot_date: changed ? date : lastSnapshotDate,
+    archive_status: waybackUrl ? 'saved' : 'pending',
+    ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(archiveError ? { archive_error: archiveError } : {}),
+  });
+  console.log(`OpenAI: ${changed ? 'prices changed; saved snapshot' : 'prices unchanged; checked today'}; Wayback ${waybackUrl ? 'verified' : 'pending retry'}.`);
+
 } catch (error) {
   await writeCollectionLog({
     collected_at_utc: timestamp,

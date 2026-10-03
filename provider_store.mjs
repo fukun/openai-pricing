@@ -27,7 +27,7 @@ export async function saveLog(directory, entry) {
   await writeJsonLines(file, [...byDate.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc)));
 }
 
-export async function archiveSource(sourceUrl, { provider, rows } = {}) {
+export async function archiveSource(sourceUrl, options = {}) {
   const response = await fetch(`https://web.archive.org/save/${sourceUrl}`, {
     redirect: 'manual', signal: AbortSignal.timeout(40_000),
     headers: { 'user-agent': 'model-pricing-history/1.0 (+https://github.com/fukun/openai-pricing)' },
@@ -40,6 +40,14 @@ export async function archiveSource(sourceUrl, { provider, rows } = {}) {
   const url = new URL(location, 'https://web.archive.org/');
   if (url.hostname !== 'web.archive.org' || !/^\/web\/\d{14}(?:[a-z_]+)?\/https?:\/\//.test(url.pathname)) {
     throw new Error('Save Page Now has not returned a completed capture.');
+  }
+  return verifyArchive(url.href, sourceUrl, options);
+}
+
+export async function verifyArchive(archiveUrl, sourceUrl, { provider, rows, source } = {}) {
+  const url = new URL(archiveUrl);
+  if (url.hostname !== 'web.archive.org' || !/^\/web\/\d{14}(?:[a-z_]+)?\/https?:\/\//.test(url.pathname)) {
+    throw new Error('Invalid timestamped Wayback capture URL.');
   }
   const expectedTarget = new URL(sourceUrl).href;
   const capture = url.pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
@@ -57,10 +65,13 @@ export async function archiveSource(sourceUrl, { provider, rows } = {}) {
   if (provider && rows && snapshotSignature(PARSERS[provider](body)) !== snapshotSignature(rows)) {
     throw new Error('Wayback capture prices/models do not match the collected source.');
   }
+  if (source !== undefined && body.replaceAll('\r\n', '\n').trim() !== source.replaceAll('\r\n', '\n').trim()) {
+    throw new Error('Wayback capture content does not match the collected Markdown.');
+  }
   return url.href;
 }
 
-export async function recordCollection({ provider, rows, source, now = new Date(), dataDirectory, archive = archiveSource }) {
+export async function recordCollection({ provider, rows, source, now = new Date(), dataDirectory, archive = archiveSource, verify = verifyArchive }) {
   if (!rows.length) throw new Error('Refusing to replace history with empty pricing data.');
   const config = PROVIDERS[provider];
   const directory = join(dataDirectory, provider);
@@ -82,15 +93,25 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   }
   let archiveError;
   let waybackUrl = snapshot.find((row) => row.wayback_url)?.wayback_url;
+  let archiveCorrection = false;
+  if (waybackUrl) {
+    try { await verify(waybackUrl, config.archiveUrl, { provider, rows }); }
+    catch (error) {
+      archiveCorrection = true;
+      waybackUrl = undefined;
+      snapshot = snapshot.map(({ wayback_url, ...row }) => row);
+      archiveError = error.message;
+    }
+  }
   // An unchanged price check only retries an earlier failed archive. It never
   // creates a new price snapshot or a new local source copy.
   if (!waybackUrl) {
-    try { waybackUrl = await archive(config.archiveUrl, { provider, rows }); }
+    try { waybackUrl = await archive(config.archiveUrl, { provider, rows }); archiveError = undefined; }
     catch (error) { archiveError = error.message; }
   }
   snapshot = snapshot.map((row) => ({ ...row, archive_status: waybackUrl ? 'saved' : 'pending',
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}) }));
-  if (changed || (!latest.some((row) => row.wayback_url) && waybackUrl)) {
+  if (changed || archiveCorrection || (!latest.some((row) => row.wayback_url) && waybackUrl)) {
     const merged = new Map();
     const retained = changed ? previous.filter((row) => row.date_utc !== date) : previous;
     for (const row of [...retained, ...snapshot]) {
