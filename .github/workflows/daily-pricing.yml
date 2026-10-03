@@ -28,7 +28,7 @@ jobs:
         run: node collect_pricing.mjs
       - name: Save updated history
         run: |
-          if ! git diff --quiet -- data/pricing_history.jsonl; then
+          if [ -n "$(git status --porcelain -- data/pricing_history.jsonl)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add data/pricing_history.jsonl
