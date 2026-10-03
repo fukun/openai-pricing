@@ -4,37 +4,37 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f6f7f9">
-    <meta name="description" content="OpenAI GPT-5 及以上模型 API 价格历史">
-    <title>OpenAI API 价格历史</title>
-    <link rel="stylesheet" href="styles.css">
-    <script type="module" src="app.js"></script>
+    <meta name="description" content="DeepSeek API 价格历史">
+    <title>DeepSeek API 价格历史</title>
+    <link rel="stylesheet" href="../styles.css">
+    <script type="module" src="../app.js"></script>
   </head>
-  <body>
+  <body data-provider="deepseek">
     <main class="shell">
       <header class="topbar">
-        <a class="brand" href="./" aria-label="OpenAI API 价格历史首页">
-          <span class="brand-mark">O</span>
+        <a class="brand" href="../" aria-label="DeepSeek API 价格历史首页">
+          <span class="brand-mark">D</span>
           <span>价格观察</span>
         </a>
-        <a class="source-link" href="https://developers.openai.com/api/docs/pricing?latest-pricing=batch" target="_blank" rel="noreferrer">OpenAI 官方价格 ↗</a>
+        <a class="source-link" href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" rel="noreferrer">DeepSeek 官方价格 ↗</a>
       </header>
 
       <nav class="provider-nav" aria-label="服务商">
-        <a href="./" aria-current="page">OpenAI</a>
-        <a href="deepseek/">DeepSeek</a>
-        <a href="claude/">Claude</a>
-        <a href="gemini/">Gemini</a>
+        <a href="../">OpenAI</a>
+        <a href="../deepseek/" aria-current="page">DeepSeek</a>
+        <a href="../claude/">Claude</a>
+        <a href="../gemini/">Gemini</a>
       </nav>
 
       <section class="intro">
-        <div class="eyebrow"><span class="live-dot"></span> GPT-5+ API PRICING</div>
-        <h1>模型价格历史</h1>
-        <p>追踪 OpenAI GPT-5 及以上模型的 Standard 和 Batch 价格变化。</p>
+        <div class="eyebrow"><span class="live-dot"></span> DEEPSEEK API PRICING</div>
+        <h1>DeepSeek 模型价格历史</h1>
+        <p>追踪 DeepSeek 官方模型的高峰、非高峰及缓存命中价格变化。</p>
       </section>
 
       <section class="summary" aria-label="数据概览">
-        <article class="summary-card"><span>模型数量</span><strong id="model-count">—</strong><small>GPT-5 及以上</small></article>
-        <article class="summary-card"><span>价格记录</span><strong id="record-count">—</strong><small>Standard + Batch</small></article>
+        <article class="summary-card"><span>模型数量</span><strong id="model-count">—</strong><small>官方价格页全部模型</small></article>
+        <article class="summary-card"><span>价格记录</span><strong id="record-count">—</strong><small>各价格类型 / 层级</small></article>
         <article class="summary-card"><span>最近更新</span><strong id="latest-date">—</strong><small>UTC</small></article>
       </section>
 
@@ -52,7 +52,7 @@
                 <div id="model-options" class="model-options" role="listbox" hidden></div>
               </div>
             </div>
-            <label>价格类型<select id="mode-filter"><option value="all">全部类型</option><option>Standard</option><option>Batch</option></select></label>
+            <label>价格类型<select id="mode-filter"><option value="all">全部类型</option></select></label>
             <label id="tier-filter-label" hidden>计费层级<select id="tier-filter"><option value="all">全部层级</option></select></label>
             <label>从日期<input id="from-filter" type="date"></label>
             <label>到日期<input id="to-filter" type="date"></label>
@@ -61,20 +61,20 @@
 
         <div id="list-view" class="view-panel">
           <div class="panel-heading">
-            <div><h2>价格记录</h2><p>按日期查看每日采集到的价格行</p></div>
+            <div><h2>价格记录</h2><p>仅在模型或价格变化时保存快照；每日检查结果见页面底部</p></div>
             <div class="panel-actions"><span id="visible-count" class="count-pill">0 条</span><span id="export-status" class="export-status" aria-live="polite"></span><button id="export-csv" class="export-button" type="button"><span aria-hidden="true">↓</span> 下载 CSV</button></div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>日期</th><th>模型</th><th>类型</th><th>短上下文价格</th><th>长上下文价格</th><th>Wayback</th></tr></thead>
-              <tbody id="price-rows"><tr><td colspan="6" class="empty">正在读取价格历史…</td></tr></tbody>
+              <thead><tr><th>日期</th><th>模型</th><th>类型 / 层级</th><th>价格明细 · 官方单位</th><th>来源</th></tr></thead>
+              <tbody id="price-rows"><tr><td colspan="5" class="empty">正在读取价格历史…</td></tr></tbody>
             </table>
           </div>
         </div>
 
         <div id="chart-view" class="view-panel" hidden>
           <div class="panel-heading chart-heading">
-            <div><h2>价格走势</h2><p>比较模型在所选价格类型和价格列下的每日变化</p></div>
+            <div><h2>价格走势</h2><p>比较单一数值的价格变化；多条件复合价格请查看列表原文</p></div>
             <label class="metric-select">价格列<select id="metric-filter"></select></label>
           </div>
           <div class="chart-wrap"><canvas id="price-chart" aria-label="模型价格历史折线图"></canvas></div>
@@ -83,7 +83,7 @@
         </div>
       </section>
 
-      <footer><span id="status">正在载入数据…</span><span>价格单位以官方页面为准 · <a href="https://developers.openai.com/api/docs/pricing?latest-pricing=batch" target="_blank" rel="noreferrer">来源与说明</a></span></footer>
+      <footer><span id="status">正在载入数据…</span><span>价格单位以官方页面为准 · <a href="https://api-docs.deepseek.com/quick_start/pricing" target="_blank" rel="noreferrer">来源与说明</a></span></footer>
     </main>
   </body>
 </html>
