@@ -86,7 +86,8 @@ export async function recordCollection({ provider, rows, source, now = new Date(
       || (a.pricing_tier ?? '').localeCompare(b.pricing_tier ?? '')));
   }
   const log = { provider, date_utc: date, collected_at_utc: timestamp, status: changed ? 'changed' : 'unchanged',
-    model_count: new Set(rows.map((row) => row.model)).size, pricing_rows: changed ? rows.length : 0,
+    model_count: new Set(rows.map((row) => row.model)).size,
+    model_order: [...new Set(rows.map((row) => row.model))], pricing_rows: changed ? rows.length : 0,
     latest_snapshot_date: changed ? date : latestDate, archive_status: waybackUrl ? 'saved' : 'pending',
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(archiveError ? { archive_error: archiveError } : {}) };
   await saveLog(directory, log);

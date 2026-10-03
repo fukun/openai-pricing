@@ -49,15 +49,14 @@ export function compactPriceValue(value) {
     .replace(/\s+/g, ' ').trim();
 }
 
-// The earliest stored observation is the only reliable date available for every model.
-export function newestModels(rows) {
-  const firstSeen = new Map();
-  for (const row of rows) {
-    const date = row.date_utc || row.collected_at_utc;
-    if (!firstSeen.has(row.model) || date < firstSeen.get(row.model)) firstSeen.set(row.model, date);
+// Daily collection logs preserve source order even when prices do not change.
+export function officialModelOrder(rows, logs) {
+  const available = new Set(rows.map((row) => row.model));
+  const ordered = new Set();
+  const recentLogs = [...logs].sort((a, b) => b.collected_at_utc.localeCompare(a.collected_at_utc));
+  for (const log of recentLogs) {
+    for (const model of log.model_order ?? []) if (available.has(model)) ordered.add(model);
   }
-  const version = (name) => (name.match(/\d+(?:[.-]\d+)*/)?.[0] ?? '').replaceAll('-', '.');
-  return [...firstSeen.keys()].sort((a, b) => firstSeen.get(b).localeCompare(firstSeen.get(a))
-    || version(b).localeCompare(version(a), 'en', { numeric: true })
-    || b.localeCompare(a, 'en', { numeric: true }));
+  for (const row of rows) ordered.add(row.model);
+  return [...ordered];
 }

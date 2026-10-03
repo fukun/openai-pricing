@@ -1,4 +1,4 @@
-import { numericPrice, compactPriceLabel, compactPriceValue, newestModels } from './price_values.mjs';
+import { numericPrice, compactPriceLabel, compactPriceValue, officialModelOrder } from './price_values.mjs';
 
 const PROVIDER = document.body.dataset.provider ?? 'openai';
 const IS_OPENAI = PROVIDER === 'openai';
@@ -56,7 +56,7 @@ function filteredRows() {
 }
 
 function renderModelOptions(query = '') {
-  const models = newestModels(state.rows)
+  const models = officialModelOrder(state.rows, state.collectionLog)
     .filter((model) => model.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const allModelsOption = { label: '全部模型', value: '' };
   const options = query.trim()
