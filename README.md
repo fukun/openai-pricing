@@ -7,9 +7,9 @@
 | [OpenAI](https://fukun.github.io/openai-pricing/) | GPT-5 及以上的 Standard、Batch | [价格页](https://developers.openai.com/api/docs/pricing?latest-pricing=batch) |
 | [DeepSeek](https://fukun.github.io/openai-pricing/deepseek/) | 官方全部模型，高峰/非高峰、缓存命中/未命中 | [价格页](https://api-docs.deepseek.com/quick_start/pricing) |
 | [Claude](https://fukun.github.io/openai-pricing/claude/) | 官方模型表全部条目，Standard、Batch、Fast、缓存读写 | [价格页](https://platform.claude.com/docs/en/about-claude/pricing) / [Markdown](https://platform.claude.com/docs/en/about-claude/pricing.md) |
-| [Gemini](https://fukun.github.io/openai-pricing/gemini/) | 官方 API 价格页的全部模型（含音频、图片、视频、嵌入等），免费/付费层级及各价格类型 | [Markdown](https://ai.google.dev/gemini-api/docs/pricing.md.txt?hl=zh-cn) |
+| [Gemini](https://fukun.github.io/openai-pricing/gemini/) | 官方 API 价格页的全部模型（含音频、图片、视频、嵌入等），付费价格及各价格类型 | [Markdown](https://ai.google.dev/gemini-api/docs/pricing.md.txt?hl=zh-cn) |
 
-Gemini 默认展示 Paid 层级，可切换到 Free 或全部层级。各家保留官方价格单位、条件及模型原始标签，不将按秒、按图片或按请求计费误标为 token 单价。独立的第三方云平台、工具和代理计费表不在模型监控范围内。模型表中的工具附加价格保留在对应模型的价格明细中。
+Gemini 仅采集及展示付费价格。各家保存官方价格单位、条件及模型原始标签；页面精简显示，完整条件可悬停查看，导出保留原值，不将按秒、按图片或按请求计费误标为 token 单价。独立的第三方云平台、工具和代理计费表不在模型监控范围内。模型表中的工具附加价格保留在对应模型的价格明细中。
 
 图表仅绘制可明确取值的单价；含多上下文条件、多模态金额或未来分阶段调价的复合单元格保留完整原文，不取第一个数字冒充统一价格。OpenAI 页面继续保留短/长上下文两列。
 
@@ -66,3 +66,5 @@ node --test tests/pricing.test.mjs
 ## 每日运行
 
 `.github/workflows/daily-pricing.yml` 在每天 **北京时间 08:00** 运行，更新数据后自动部署四个页面到 GitHub Pages。将项目推送到 GitHub 并启用 Actions 后，需在仓库设置的 **Pages → Build and deployment → Source** 选择 **GitHub Actions**；随后可在 Actions 页面手动触发 `Collect model pricing`。
+
+模型下拉框按首次采集到该模型的时间倒序排列；同一时间首次出现的模型按版本号倒序排列。

@@ -1,4 +1,4 @@
-import { numericPrice } from './price_values.mjs';
+import { numericPrice, compactPriceLabel, compactPriceValue, newestModels } from './price_values.mjs';
 
 const PROVIDER = document.body.dataset.provider ?? 'openai';
 const IS_OPENAI = PROVIDER === 'openai';
@@ -14,7 +14,6 @@ const el = (id) => document.getElementById(id);
 const modelFilter = el('model-filter');
 const modelOptions = el('model-options');
 const modeFilter = el('mode-filter');
-const tierFilter = el('tier-filter');
 const fromFilter = el('from-filter');
 const toFilter = el('to-filter');
 let selectedModel = '';
@@ -22,7 +21,8 @@ let highlightedModelOption = 0;
 
 function parseData(text) {
   return text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
-    .filter((row) => row.model && row.date_utc && row.pricing_mode && Array.isArray(row.prices));
+    .filter((row) => row.model && row.date_utc && row.pricing_mode && Array.isArray(row.prices)
+      && (PROVIDER !== 'gemini' || row.pricing_tier === 'Paid'));
 }
 
 function dateRange(rows) {
@@ -52,13 +52,11 @@ function metricLabel(row, index) {
 function filteredRows() {
   return dateRange(state.rows).filter((row) =>
     (!selectedModel || row.model === selectedModel)
-    && (modeFilter.value === 'all' || row.pricing_mode === modeFilter.value)
-    && (tierFilter.value === 'all' || row.pricing_tier === tierFilter.value));
+    && (modeFilter.value === 'all' || row.pricing_mode === modeFilter.value));
 }
 
 function renderModelOptions(query = '') {
-  const models = [...new Set(state.rows.map((row) => row.model))]
-    .sort((a, b) => a.localeCompare(b))
+  const models = newestModels(state.rows)
     .filter((model) => model.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const allModelsOption = { label: '全部模型', value: '' };
   const options = query.trim()
@@ -116,7 +114,7 @@ function metricOptions(rows) {
       metrics.add(metricLabel(row, offset + 1));
     });
   }
-  return [...metrics].map((label) => ({ value: label, label }));
+  return [...metrics].map((label) => ({ value: label, label: compactPriceLabel(label) }));
 }
 
 function renderMetricOptions(rows) {
@@ -141,10 +139,6 @@ function renderSummary() {
   el('latest-date').textContent = dates.at(-1) ?? '—';
   const modes = [...new Set(state.rows.map((row) => row.pricing_mode))].sort();
   modeFilter.replaceChildren(new Option('全部类型', 'all'), ...modes.map((mode) => new Option(mode, mode)));
-  const tiers = [...new Set(state.rows.map((row) => row.pricing_tier).filter(Boolean))].sort();
-  tierFilter.replaceChildren(new Option('全部层级', 'all'), ...tiers.map((tier) => new Option(tier, tier)));
-  if (PROVIDER === 'gemini' && tiers.includes('Paid')) tierFilter.value = 'Paid';
-  el('tier-filter-label').hidden = !tiers.length;
   renderModelOptions();
 }
 
@@ -166,23 +160,11 @@ function renderList(rows) {
     model.className = 'model-name';
     model.textContent = row.model;
     model.title = row.source_model_label ?? row.model;
-    if (!IS_OPENAI && row.source_model_label && row.source_model_label !== row.model) {
-      const original = document.createElement('small');
-      original.className = 'source-model-label';
-      original.textContent = row.source_model_label;
-      model.append(original);
-    }
     const mode = document.createElement('td');
     const badge = document.createElement('span');
     badge.className = `mode-badge ${row.pricing_mode === 'Batch' ? 'mode-batch' : row.pricing_mode === 'Standard' ? 'mode-standard' : 'mode-other'}`;
     badge.textContent = row.pricing_mode;
     mode.append(badge);
-    if (row.pricing_tier) {
-      const tier = document.createElement('span');
-      tier.className = 'mode-badge tier-badge';
-      tier.textContent = row.pricing_tier;
-      mode.append(tier);
-    }
     const renderPriceCell = (longContext) => {
       const cell = document.createElement('td');
       const wrap = document.createElement('div');
@@ -194,20 +176,16 @@ function renderList(rows) {
         const chip = document.createElement('span');
         chip.className = 'price-chip';
         const label = document.createElement('b');
-        label.textContent = IS_OPENAI ? fullLabel.replace(/\s*[（(](?:short|long) context[）)]/i, '') : metricLabel(row, offset + 1);
+        label.textContent = IS_OPENAI ? fullLabel.replace(/\s*[（(](?:short|long) context[）)]/i, '') : compactPriceLabel(fullLabel);
+        if (!IS_OPENAI && row.price_unit === 'per second in USD') label.textContent += ' /second';
         const amount = document.createElement('span');
-        amount.textContent = value || '—';
+        amount.textContent = compactPriceValue(value) || '—';
+        chip.title = [fullLabel, value, row.model_version, row.pricing_notes].filter(Boolean).join(' · ');
         chip.append(label, amount);
         wrap.append(chip);
       });
       if (wrap.childElementCount) cell.append(wrap);
       else { cell.className = 'date-cell'; cell.textContent = '—'; }
-      if (!IS_OPENAI) {
-        const notes = document.createElement('small');
-        notes.className = 'pricing-notes';
-        notes.textContent = [row.price_unit ? `官方表格默认单位：${row.price_unit}；具体条件以各项原文为准` : '', row.model_version, row.pricing_notes].filter(Boolean).join(' · ');
-        cell.append(notes);
-      }
       return cell;
     };
     const archive = document.createElement('td');
@@ -222,14 +200,6 @@ function renderList(rows) {
     } else {
       archive.className = 'date-cell';
       archive.textContent = row.archive_status === 'pending' ? '归档待重试' : '—';
-    }
-    if (row.source_snapshot) {
-      const source = document.createElement('a');
-      source.className = 'archive-link snapshot-link';
-      source.href = new URL(row.source_snapshot, SITE_ROOT).href;
-      source.download = row.source_snapshot.split('/').at(-1);
-      source.textContent = '采集原文 ↓';
-      archive.append(source);
     }
     if (IS_OPENAI) tr.append(date, model, mode, renderPriceCell(false), renderPriceCell(true), archive);
     else tr.append(date, model, mode, renderPriceCell(null), archive);
@@ -251,14 +221,14 @@ function exportCsv(rows) {
   try {
     const priceColumns = [...new Set(rows.flatMap((row) => row.prices.slice(1)
       .map((_, offset) => metricLabel(row, offset + 1))))];
-    const headers = ['日期', '模型', '官方原始模型标签', '价格类型', '计费层级', '价格单位', 'Wayback 归档', '采集原文', ...priceColumns];
+    const headers = ['日期', '模型', '官方原始模型标签', '价格类型', '价格单位', 'Wayback 归档', ...priceColumns];
     const lines = [headers, ...rows.map((row) => {
       const valuesByLabel = new Map();
       row.prices.slice(1).forEach((value, offset) => {
         valuesByLabel.set(metricLabel(row, offset + 1), value);
       });
-      return [row.date_utc, row.model, row.source_model_label ?? row.model, row.pricing_mode, row.pricing_tier ?? '',
-        row.price_unit ?? '', row.wayback_url ?? '', row.source_snapshot ? new URL(row.source_snapshot, SITE_ROOT).href : '',
+      return [row.date_utc, row.model, row.source_model_label ?? row.model, row.pricing_mode,
+        row.price_unit ?? '', row.wayback_url ?? '',
         ...priceColumns.map((label) => valuesByLabel.get(label) ?? '')];
     })].map((line) => line.map(csvCell).join(',')).join('\r\n');
     const blob = new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8' });
@@ -293,7 +263,7 @@ function drawChart(rows) {
     if (index < 0) continue;
     const value = numericPrice(row.prices[index]);
     if (value == null) continue;
-    const name = [row.model, modeFilter.value === 'all' ? row.pricing_mode : '', row.pricing_tier].filter(Boolean).join(' · ');
+    const name = [row.model, modeFilter.value === 'all' ? row.pricing_mode : ''].filter(Boolean).join(' · ');
     if (!series.has(name)) series.set(name, new Map());
     series.get(name).set(row.date_utc, value);
   }
@@ -424,7 +394,7 @@ modelOptions.addEventListener('mousemove', (event) => {
   if (index >= 0) { highlightedModelOption = index; updateModelHighlight(); }
 });
 modelFilter.addEventListener('blur', () => setModelOptionsOpen(false));
-for (const filter of [modeFilter, tierFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
+for (const filter of [modeFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
 el('export-csv').addEventListener('click', () => exportCsv(filteredRows()));
 el('metric-filter').addEventListener('change', (event) => { state.metric = event.target.value; drawChart(filteredRows()); });
 document.querySelectorAll('.view-button').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
@@ -448,7 +418,7 @@ try {
     : todayLog?.status === 'changed' ? '今日已采集；模型或价格有变化'
       : todayLog?.status === 'failed' ? '今日采集失败'
         : `已载入 ${state.rows.length.toLocaleString('zh-CN')} 条价格记录`;
-  el('status').textContent = collectionStatus + (todayLog?.archive_status === 'pending' ? '；Wayback 待重试，采集原文已保存' : '');
+  el('status').textContent = collectionStatus + (todayLog?.archive_status === 'pending' ? '；Wayback 归档待重试' : '');
 } catch (error) {
   el('status').textContent = '数据还未生成或暂时无法读取';
   const cell = document.createElement('td');

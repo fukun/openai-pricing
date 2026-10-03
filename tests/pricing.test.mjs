@@ -44,7 +44,7 @@ test('Claude handles official annotations, all model rows, and shared fast-price
   assert.throws(() => parseClaude(markdown.replace('### Batch processing', '### Missing')), /Missing official/);
 });
 
-test('Gemini keeps shared model IDs, tiers, modes, source units and composite values', () => {
+test('Gemini keeps shared model IDs, paid prices, modes, source units and composite values', () => {
   const markdown = `## Gemini Live
 [\`gemini-test-a\`](https://example.com), [\`gemini-test-b\`](https://example.com)
 ### Standard
@@ -62,7 +62,7 @@ test('Gemini keeps shared model IDs, tiers, modes, source units and composite va
 | Search | Free | $10 |
 `;
   const rows = parseGemini(markdown);
-  assert.equal(rows.length, 8);
+  assert.equal(rows.length, 4);
   assert.equal(new Set(rows.map((row) => row.model)).size, 2);
   assert.equal(rows[1].prices[1], '$1 (short) $2 (long)');
   assert.equal(rows[1].prices.length, 2);

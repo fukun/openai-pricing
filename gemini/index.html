@@ -29,12 +29,12 @@
       <section class="intro">
         <div class="eyebrow"><span class="live-dot"></span> GEMINI API PRICING</div>
         <h1>Gemini 模型价格历史</h1>
-        <p>追踪 Gemini API 官方模型的免费 / 付费层级，以及 Standard、Batch、Flex、Priority 等价格变化。</p>
+        <p>追踪 Gemini API 付费模型的 Standard、Batch、Flex、Priority 等价格变化。</p>
       </section>
 
       <section class="summary" aria-label="数据概览">
         <article class="summary-card"><span>模型数量</span><strong id="model-count">—</strong><small>官方价格页全部模型</small></article>
-        <article class="summary-card"><span>价格记录</span><strong id="record-count">—</strong><small>各价格类型 / 层级</small></article>
+        <article class="summary-card"><span>价格记录</span><strong id="record-count">—</strong><small>各价格类型</small></article>
         <article class="summary-card"><span>最近更新</span><strong id="latest-date">—</strong><small>UTC</small></article>
       </section>
 
@@ -53,7 +53,6 @@
               </div>
             </div>
             <label>价格类型<select id="mode-filter"><option value="all">全部类型</option></select></label>
-            <label id="tier-filter-label" hidden>计费层级<select id="tier-filter"><option value="all">全部层级</option></select></label>
             <label>从日期<input id="from-filter" type="date"></label>
             <label>到日期<input id="to-filter" type="date"></label>
           </div>
@@ -66,7 +65,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>日期</th><th>模型</th><th>类型 / 层级</th><th>价格明细 · 官方单位</th><th>来源</th></tr></thead>
+              <thead><tr><th>日期</th><th>模型</th><th>类型</th><th>价格明细</th><th>Wayback</th></tr></thead>
               <tbody id="price-rows"><tr><td colspan="5" class="empty">正在读取价格历史…</td></tr></tbody>
             </table>
           </div>
@@ -74,7 +73,7 @@
 
         <div id="chart-view" class="view-panel" hidden>
           <div class="panel-heading chart-heading">
-            <div><h2>价格走势</h2><p>比较单一数值的价格变化；多条件复合价格请查看列表原文</p></div>
+            <div><h2>价格走势</h2><p>比较单一数值的价格变化；多条件复合价格请查看列表明细</p></div>
             <label class="metric-select">价格列<select id="metric-filter"></select></label>
           </div>
           <div class="chart-wrap"><canvas id="price-chart" aria-label="模型价格历史折线图"></canvas></div>

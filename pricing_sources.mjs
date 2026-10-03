@@ -166,7 +166,7 @@ export function parseGemini(markdown) {
             applicable = priceRows.filter((row) => (model.includes('-clip-') ? /Clip/i : /Pro/i).test(row[0]));
           }
           if (!applicable.length) throw new Error(`No applicable price rows for ${model}.`);
-          for (const [index, tier] of [[1, 'Free'], [2, 'Paid']]) {
+          for (const [index, tier] of [[2, 'Paid']]) {
             const unit = table.headers[2].replace(/^(?:Paid Tier|付费层级)[，,]?\s*/i, '');
             records.push({ model, source_model_label: heading, pricing_mode: mode, pricing_tier: tier,
               price_unit: unit,
