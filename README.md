@@ -1,6 +1,6 @@
 # OpenAI GPT-5+ pricing history
 
-每天从 [OpenAI API Pricing](https://developers.openai.com/api/docs/pricing?latest-pricing=batch) 采集 GPT-5 及以上 GPT 系列模型的 **Standard** 和 **Batch** 价格。价格表的表头和原始价格行会一并保留，以适应不同上下文长度和缓存价格列。
+每天从 [OpenAI API Pricing](https://developers.openai.com/api/docs/pricing?latest-pricing=batch) 采集 GPT-5 及以上 GPT 系列模型的 **Standard** 和 **Batch** 价格。采集器读取官方价格组件的完整模型数据（包括页面上需要点击 **All Models** 才会展开的模型），而不是只读取默认显示的几行。适用的最新模型也会记录短上下文和长上下文价格。
 
 仓库还包含一个静态仪表盘，支持按日期、模型和价格类型筛选，并以列表或价格走势图查看历史数据。
 

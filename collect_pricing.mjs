@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PAGE_URL = 'https://developers.openai.com/api/docs/pricing';
+const PAGE_URL = 'https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
 const OUTPUT = resolve(dirname(fileURLToPath(import.meta.url)), 'data/pricing_history.jsonl');
 const MODEL_NAME = /^gpt-(?:5|[6-9]|[1-9]\d)(?:[.-]|$)/i;
 const MODES = ['Standard', 'Batch'];
@@ -29,58 +29,122 @@ function cellText(html) {
     .trim();
 }
 
-function parseTables(html) {
-  const tables = [];
-  for (const tableMatch of html.matchAll(/<table\b[^>]*>([\s\S]*?)<\/table\s*>/gi)) {
-    const rows = [];
-    for (const rowMatch of tableMatch[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr\s*>/gi)) {
-      const cells = [];
-      for (const cellMatch of rowMatch[1].matchAll(/<(th|td)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi)) {
-        cells.push({ tag: cellMatch[1].toLowerCase(), text: cellText(cellMatch[2]) });
-      }
-      if (cells.length) rows.push(cells);
-    }
-    if (rows.length) tables.push(rows);
+function unpackPageValue(value) {
+  const item = Array.isArray(value) ? value[1] : value;
+  if (item && typeof item === 'object' && item.__pricingHtml) {
+    return cellText(item.__pricingHtml[1]);
   }
-  return tables;
+  if (item == null) return '-';
+  return typeof item === 'number' ? `$${item}` : String(item);
 }
 
-function modelRows(tables, mode) {
+function parseComponentData(source) {
+  const longPricesLiteral = source.match(/var l=({[\s\S]*?}),u=/)?.[1];
+  const latestModelLiteral = source.match(/E=new Set\(\[([\s\S]*?)\]\)/)?.[1];
+  if (!longPricesLiteral || !latestModelLiteral) {
+    throw new Error('OpenAI pricing component format changed; refusing to save incomplete prices.');
+  }
+
+  // The page bundle stores this section as a static object literal. Convert only
+  // its literal syntax to JSON; never evaluate code from the remote page.
+  const longPricesJson = longPricesLiteral
+    .replace(/`([^`]*)`/g, (_, value) => JSON.stringify(value))
+    .replace(/([{,]\s*)([A-Za-z_$][\w$]*)(\s*:)/g, '$1"$2"$3')
+    .replace(/(:\s*)(\.\d+)/g, (_, prefix, value) => `${prefix}0${value}`);
+  const longPrices = JSON.parse(longPricesJson);
+  const latestModels = new Set([...latestModelLiteral.matchAll(/`([^`]*)`/g)].map((match) => match[1]));
+  return { longPrices, latestModels };
+}
+
+function modelRows(html, { longPrices, latestModels }) {
   const records = [];
-  for (const rows of tables) {
-    const headers = rows.filter((row) => row.every((cell) => cell.tag === 'th'))
-      .map((row) => row.map((cell) => cell.text));
-    for (const row of rows) {
-      const values = row.map((cell) => cell.text);
-      const model = values[0]?.replace(/^`|`$/g, '');
-      if (MODEL_NAME.test(model ?? '')) {
-        records.push({ model, pricing_mode: mode, table_headers: headers, prices: values });
+  const islands = html.matchAll(/<astro-island\b(?=[^>]*\bcomponent-export="TextTokenPricingTables")[^>]*>/gi);
+
+  for (const islandMatch of islands) {
+    const propsValue = islandMatch[0].match(/\bprops="([^"]*)"/i)?.[1];
+    if (!propsValue) continue;
+
+    let props;
+    try {
+      props = JSON.parse(decodeHtml(propsValue));
+    } catch (error) {
+      throw new Error(`Could not parse OpenAI pricing table metadata: ${error.message}`);
+    }
+    const mode = props.tier?.[1];
+    if (!MODES.some((item) => item.toLowerCase() === mode)) continue;
+
+    const encodedRows = props.rows?.[1];
+    if (!Array.isArray(encodedRows)) continue;
+    for (const encodedRow of encodedRows) {
+      const values = encodedRow?.[1]?.map(unpackPageValue);
+      const model = values?.[0]?.replace(/^`|`$/g, '');
+      if (!MODEL_NAME.test(model ?? '')) continue;
+
+      const normalizedModel = model.replace(/ \(.+$/, '');
+      const isLatest = latestModels.has(normalizedModel);
+      const shortValues = values.slice(1);
+      let tableHeaders;
+      let prices;
+      if (isLatest) {
+        const [input = '-', cachedInput = '-', cacheWrites = '-', output = '-'] = shortValues;
+        const long = longPrices[mode]?.[normalizedModel] ?? {};
+        tableHeaders = [[
+          'Model', 'Input (short context)', 'Cached input (short context)',
+          'Cache writes (short context)', 'Output (short context)',
+          'Input (long context)', 'Cached input (long context)',
+          'Cache writes (long context)', 'Output (long context)',
+        ]];
+        prices = [model, input, cachedInput, cacheWrites, output,
+          unpackPageValue(long.input), unpackPageValue(long.cachedInput),
+          unpackPageValue(long.cacheWrite), unpackPageValue(long.output)];
+      } else if (shortValues.length === 4) {
+        tableHeaders = [['Model', 'Input', 'Cached input', 'Cache writes', 'Output']];
+        prices = [model, ...shortValues];
+      } else {
+        tableHeaders = [['Model', 'Input', 'Cached input', 'Output']];
+        prices = [model, ...shortValues];
       }
+
+      records.push({
+        model,
+        pricing_mode: mode[0].toUpperCase() + mode.slice(1),
+        table_headers: tableHeaders,
+        prices,
+      });
     }
   }
   return records;
 }
 
-async function getPrices(mode) {
-  const url = `${PAGE_URL}?latest-pricing=${mode.toLowerCase()}`;
-  const response = await fetch(url, {
+async function getPrices() {
+  const response = await fetch(PAGE_URL, {
     headers: { 'user-agent': 'openai-pricing-history/1.0 (+https://developers.openai.com/api/docs/pricing)' },
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`${PAGE_URL} returned HTTP ${response.status}`);
   const html = await response.text();
-  const records = modelRows(parseTables(html), mode);
-  if (!records.length) {
-    throw new Error(`No GPT-5+ model pricing rows found for ${mode}; no snapshot was written.`);
+  const componentPath = html.match(/<astro-island\b(?=[^>]*\bcomponent-export="TextTokenPricingTables")[^>]*component-url="([^"]+)"/i)?.[1];
+  if (!componentPath) throw new Error('Could not find OpenAI pricing component metadata.');
+  const componentUrl = new URL(decodeHtml(componentPath), new URL(PAGE_URL).origin).href;
+  const componentResponse = await fetch(componentUrl, {
+    headers: { 'user-agent': 'openai-pricing-history/1.0 (+https://developers.openai.com/api/docs/pricing)' },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!componentResponse.ok) throw new Error(`${componentUrl} returned HTTP ${componentResponse.status}`);
+  const componentData = parseComponentData(await componentResponse.text());
+  const records = modelRows(html, componentData).map((record) => ({ ...record, source_url: PAGE_URL }));
+  for (const mode of MODES) {
+    if (records.filter((record) => record.pricing_mode === mode).length < 10) {
+      throw new Error(`No GPT-5+ model pricing rows found for ${mode}; no snapshot was written.`);
+    }
   }
-  return records.map((record) => ({ ...record, source_url: url }));
+  return records;
 }
 
 const now = new Date();
 const timestamp = now.toISOString();
 const date = timestamp.slice(0, 10);
-const todaysRows = [];
-for (const mode of MODES) todaysRows.push(...await getPrices(mode));
+const todaysRows = await getPrices();
 
 // Merge by day/model/mode/table so reruns replace today's rows instead of duplicating them.
 let previousRows = [];

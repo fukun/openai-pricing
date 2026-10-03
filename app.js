@@ -19,6 +19,18 @@ function dateRange(rows) {
   return rows.filter((row) => (!from || row.date_utc >= from) && (!to || row.date_utc <= to));
 }
 
+function priceLabel(headers, index) {
+  const group = headers?.[0]?.[index];
+  const label = headers?.at(-1)?.[index];
+  if (!label) return `价格列 ${index + 1}`;
+  return group && group !== label ? `${label}（${group}）` : label;
+}
+
+function priceColumnIndex(row, label) {
+  const labels = row.table_headers?.at(-1) ?? [];
+  return labels.findIndex((_, index) => index > 0 && priceLabel(row.table_headers, index) === label);
+}
+
 function filteredRows() {
   return dateRange(state.rows).filter((row) =>
     (modelFilter.value === 'all' || row.model === modelFilter.value)
@@ -26,24 +38,18 @@ function filteredRows() {
 }
 
 function metricOptions(rows) {
-  const metrics = new Map();
+  const metrics = new Set();
   for (const row of rows) {
-    const headers = row.table_headers?.at(-1) ?? [];
     row.prices.slice(1).forEach((_, offset) => {
-      const cellIndex = offset + 1;
-      let label = headers[cellIndex] || `价格列 ${cellIndex + 1}`;
-      if (metrics.has(String(cellIndex)) && metrics.get(String(cellIndex)) !== label) {
-        label = `${label} (${row.model})`;
-      }
-      metrics.set(String(cellIndex), label);
+      metrics.add(priceLabel(row.table_headers, offset + 1));
     });
   }
-  return [...metrics.entries()].map(([value, label]) => ({ value: Number(value), label }));
+  return [...metrics].map((label) => ({ value: label, label }));
 }
 
 function renderMetricOptions(rows) {
   const options = metricOptions(rows);
-  const previous = Number(el('metric-filter').value || state.metric);
+  const previous = el('metric-filter').value || state.metric;
   el('metric-filter').replaceChildren(...options.map(({ value, label }) => {
     const option = document.createElement('option');
     option.value = value;
@@ -52,7 +58,7 @@ function renderMetricOptions(rows) {
   }));
   const selected = options.some((option) => option.value === previous) ? previous : options[0]?.value;
   state.metric = selected ?? null;
-  if (selected != null) el('metric-filter').value = String(selected);
+  if (selected != null) el('metric-filter').value = selected;
 }
 
 function renderSummary() {
@@ -92,12 +98,11 @@ function renderList(rows) {
     const prices = document.createElement('td');
     const wrap = document.createElement('div');
     wrap.className = 'price-values';
-    const headers = row.table_headers?.at(-1) ?? [];
     row.prices.slice(1).forEach((value, offset) => {
       const chip = document.createElement('span');
       chip.className = 'price-chip';
       const label = document.createElement('b');
-      label.textContent = headers[offset + 1] || `价格 ${offset + 2}`;
+      label.textContent = priceLabel(row.table_headers, offset + 1);
       const amount = document.createElement('span');
       amount.textContent = value || '—';
       chip.append(label, amount);
@@ -119,16 +124,18 @@ function drawChart(rows) {
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, rect.width, rect.height);
 
-  const index = state.metric;
+  const metric = state.metric;
   const series = new Map();
   for (const row of rows) {
+    const index = priceColumnIndex(row, metric);
+    if (index < 0) continue;
     const value = Number(String(row.prices[index] ?? '').replace(/[$,]/g, '').match(/-?\d+(?:\.\d+)?/)?.[0]);
     if (!Number.isFinite(value)) continue;
     const name = modeFilter.value === 'all' ? `${row.model} · ${row.pricing_mode}` : row.model;
     if (!series.has(name)) series.set(name, new Map());
     series.get(name).set(row.date_utc, value);
   }
-  const dates = [...new Set(rows.filter((row) => series.has(row.model)).map((row) => row.date_utc))].sort();
+  const dates = [...new Set([...series.values()].flatMap((points) => [...points.keys()]))].sort();
   el('chart-empty').hidden = series.size > 0 && dates.length > 0;
   el('chart-legend').replaceChildren();
   if (!series.size || !dates.length) return;
@@ -217,7 +224,7 @@ function setView(view) {
 }
 
 for (const filter of [modelFilter, modeFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
-el('metric-filter').addEventListener('change', (event) => { state.metric = Number(event.target.value); drawChart(filteredRows()); });
+el('metric-filter').addEventListener('change', (event) => { state.metric = event.target.value; drawChart(filteredRows()); });
 document.querySelectorAll('.view-button').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
 window.addEventListener('resize', () => { if (state.view === 'chart') drawChart(filteredRows()); });
 
