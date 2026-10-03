@@ -49,16 +49,21 @@ export async function verifyArchive(archiveUrl, sourceUrl, { provider, rows, sou
   if (url.hostname !== 'web.archive.org' || !/^\/web\/\d{14}(?:[a-z_]+)?\/https?:\/\//.test(url.pathname)) {
     throw new Error('Invalid timestamped Wayback capture URL.');
   }
-  const expectedTarget = new URL(sourceUrl).href;
+  const canonicalTarget = (value) => {
+    const target = new URL(value);
+    target.pathname = target.pathname.replace(/\/+$/, '') || '/';
+    return target.href;
+  };
+  const expectedTarget = canonicalTarget(sourceUrl);
   const capture = url.pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
-  if (new URL(capture[2] + url.search).href !== expectedTarget) throw new Error('Wayback capture targets a different source URL.');
-  const replayUrl = `https://web.archive.org/web/${capture[1]}id_/${sourceUrl}`;
+  if (canonicalTarget(capture[2] + url.search) !== expectedTarget) throw new Error('Wayback capture targets a different source URL.');
+  const replayUrl = `https://web.archive.org/web/${capture[1]}id_/${capture[2]}${url.search}`;
   const replay = await fetch(replayUrl, { signal: AbortSignal.timeout(40_000) });
   const actual = new URL(replay.url).pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
   if (!replay.ok || !actual || actual[1] !== capture[1]) {
     throw new Error('Wayback capture is unavailable or redirects to an older capture.');
   }
-  if (new URL(actual[2] + new URL(replay.url).search).href !== expectedTarget) {
+  if (canonicalTarget(actual[2] + new URL(replay.url).search) !== expectedTarget) {
     throw new Error('Wayback replay targets a different source URL.');
   }
   const body = await replay.text();
