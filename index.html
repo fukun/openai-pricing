@@ -39,10 +39,9 @@
           </div>
           <div class="filters">
             <div class="model-filter">
-              <label for="model-search">搜索模型</label>
-              <input id="model-search" type="search" placeholder="输入模型名" autocomplete="off">
               <label for="model-filter">模型</label>
-              <select id="model-filter"><option value="all">全部模型</option></select>
+              <input id="model-filter" type="search" list="model-options" placeholder="搜索或选择模型" autocomplete="off">
+              <datalist id="model-options"></datalist>
             </div>
             <label>价格类型<select id="mode-filter"><option value="all">全部类型</option><option>Standard</option><option>Batch</option></select></label>
             <label>从日期<input id="from-filter" type="date"></label>
@@ -53,12 +52,12 @@
         <div id="list-view" class="view-panel">
           <div class="panel-heading">
             <div><h2>价格记录</h2><p>按日期查看每日采集到的价格行</p></div>
-            <div class="panel-actions"><span id="visible-count" class="count-pill">0 条</span><button id="export-csv" class="export-button" type="button">导出 CSV</button></div>
+            <div class="panel-actions"><span id="visible-count" class="count-pill">0 条</span><span id="export-status" class="export-status" aria-live="polite"></span><button id="export-csv" class="export-button" type="button"><span aria-hidden="true">↓</span> 下载 CSV</button></div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>日期</th><th>模型</th><th>类型</th><th>价格明细 <span class="unit-note">官网原始列顺序</span></th><th>Wayback</th></tr></thead>
-              <tbody id="price-rows"><tr><td colspan="5" class="empty">正在读取价格历史…</td></tr></tbody>
+              <thead><tr><th>日期</th><th>模型</th><th>类型</th><th>短上下文价格</th><th>长上下文价格</th><th>Wayback</th></tr></thead>
+              <tbody id="price-rows"><tr><td colspan="6" class="empty">正在读取价格历史…</td></tr></tbody>
             </table>
           </div>
         </div>

@@ -5,7 +5,7 @@ const COLORS = ['#17855d','#477aa4','#d08336','#8268ad','#d05c65','#358e9b','#a7
 const state = { rows: [], collectionLog: [], view: 'list', metric: null };
 const el = (id) => document.getElementById(id);
 const modelFilter = el('model-filter');
-const modelSearch = el('model-search');
+const modelOptions = el('model-options');
 const modeFilter = el('mode-filter');
 const fromFilter = el('from-filter');
 const toFilter = el('to-filter');
@@ -34,20 +34,20 @@ function priceColumnIndex(row, label) {
 }
 
 function filteredRows() {
+  const query = modelFilter.value.trim().toLocaleLowerCase();
   return dateRange(state.rows).filter((row) =>
-    (modelFilter.value === 'all' || row.model === modelFilter.value)
+    (!query || row.model.toLocaleLowerCase().includes(query))
     && (modeFilter.value === 'all' || row.pricing_mode === modeFilter.value));
 }
 
 function renderModelOptions() {
-  const query = modelSearch.value.trim().toLocaleLowerCase();
-  const selected = modelFilter.value;
   const models = [...new Set(state.rows.map((row) => row.model))]
-    .filter((model) => model.toLocaleLowerCase().includes(query))
     .sort((a, b) => a.localeCompare(b));
-  modelFilter.replaceChildren(new Option('全部模型', 'all'));
-  for (const model of models) modelFilter.add(new Option(model, model));
-  modelFilter.value = models.includes(selected) ? selected : 'all';
+  modelOptions.replaceChildren(...models.map((model) => {
+    const option = document.createElement('option');
+    option.value = model;
+    return option;
+  }));
 }
 
 function metricOptions(rows) {
@@ -87,7 +87,7 @@ function renderList(rows) {
   const body = el('price-rows');
   el('visible-count').textContent = `${rows.length.toLocaleString('zh-CN')} 条`;
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="5" class="empty">当前筛选条件没有价格记录。</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty">当前筛选条件没有价格记录。</td></tr>';
     return;
   }
   const sorted = [...rows].sort((a, b) => b.date_utc.localeCompare(a.date_utc)
@@ -105,20 +105,29 @@ function renderList(rows) {
     badge.className = `mode-badge ${row.pricing_mode === 'Batch' ? 'mode-batch' : 'mode-standard'}`;
     badge.textContent = row.pricing_mode;
     mode.append(badge);
-    const prices = document.createElement('td');
-    const wrap = document.createElement('div');
-    wrap.className = 'price-values';
-    row.prices.slice(1).forEach((value, offset) => {
-      const chip = document.createElement('span');
-      chip.className = 'price-chip';
-      const label = document.createElement('b');
-      label.textContent = priceLabel(row.table_headers, offset + 1);
-      const amount = document.createElement('span');
-      amount.textContent = value || '—';
-      chip.append(label, amount);
-      wrap.append(chip);
-    });
-    prices.append(wrap);
+    const renderPriceCell = (longContext) => {
+      const cell = document.createElement('td');
+      const wrap = document.createElement('div');
+      wrap.className = 'price-values';
+      row.prices.slice(1).forEach((value, offset) => {
+        const fullLabel = priceLabel(row.table_headers, offset + 1);
+        const isLongContext = /long context/i.test(fullLabel);
+        if (isLongContext !== longContext) return;
+        const chip = document.createElement('span');
+        chip.className = 'price-chip';
+        const label = document.createElement('b');
+        label.textContent = fullLabel.replace(/\s*[（(](?:short|long) context[）)]/i, '');
+        const amount = document.createElement('span');
+        amount.textContent = value || '—';
+        chip.append(label, amount);
+        wrap.append(chip);
+      });
+      if (wrap.childElementCount) cell.append(wrap);
+      else { cell.className = 'date-cell'; cell.textContent = '—'; }
+      return cell;
+    };
+    const shortPrices = renderPriceCell(false);
+    const longPrices = renderPriceCell(true);
     const archive = document.createElement('td');
     if (row.wayback_url) {
       const link = document.createElement('a');
@@ -132,7 +141,7 @@ function renderList(rows) {
       archive.className = 'date-cell';
       archive.textContent = '—';
     }
-    tr.append(date, model, mode, prices, archive);
+    tr.append(date, model, mode, shortPrices, longPrices, archive);
     return tr;
   }));
 }
@@ -142,27 +151,37 @@ function csvCell(value) {
 }
 
 function exportCsv(rows) {
-  if (!rows.length) return;
-  const priceColumns = [...new Set(rows.flatMap((row) => row.prices.slice(1)
-    .map((_, offset) => priceLabel(row.table_headers, offset + 1))))];
-  const headers = ['日期', '模型', '官方原始模型标签', '价格类型', 'Wayback 归档', ...priceColumns];
-  const lines = [headers, ...rows.map((row) => {
-    const valuesByLabel = new Map();
-    row.prices.slice(1).forEach((value, offset) => {
-      valuesByLabel.set(priceLabel(row.table_headers, offset + 1), value);
-    });
-    return [row.date_utc, row.model, row.source_model_label ?? row.model, row.pricing_mode, row.wayback_url ?? '',
-      ...priceColumns.map((label) => valuesByLabel.get(label) ?? '')];
-  })].map((line) => line.map(csvCell).join(',')).join('\r\n');
-  const blob = new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `openai-pricing-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  const status = el('export-status');
+  status.textContent = '';
+  if (!rows.length) {
+    status.textContent = '当前筛选没有可导出的记录';
+    return;
+  }
+  try {
+    const priceColumns = [...new Set(rows.flatMap((row) => row.prices.slice(1)
+      .map((_, offset) => priceLabel(row.table_headers, offset + 1))))];
+    const headers = ['日期', '模型', '官方原始模型标签', '价格类型', 'Wayback 归档', ...priceColumns];
+    const lines = [headers, ...rows.map((row) => {
+      const valuesByLabel = new Map();
+      row.prices.slice(1).forEach((value, offset) => {
+        valuesByLabel.set(priceLabel(row.table_headers, offset + 1), value);
+      });
+      return [row.date_utc, row.model, row.source_model_label ?? row.model, row.pricing_mode, row.wayback_url ?? '',
+        ...priceColumns.map((label) => valuesByLabel.get(label) ?? '')];
+    })].map((line) => line.map(csvCell).join(',')).join('\r\n');
+    const blob = new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `openai-pricing-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = `已导出 ${rows.length.toLocaleString('zh-CN')} 条`;
+  } catch (error) {
+    status.textContent = `导出失败：${error.message}`;
+  }
 }
 
 function drawChart(rows) {
@@ -274,8 +293,8 @@ function setView(view) {
   if (view === 'chart') render();
 }
 
-modelSearch.addEventListener('input', () => { renderModelOptions(); render(); });
-for (const filter of [modelFilter, modeFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
+modelFilter.addEventListener('input', render);
+for (const filter of [modeFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
 el('export-csv').addEventListener('click', () => exportCsv(filteredRows()));
 el('metric-filter').addEventListener('change', (event) => { state.metric = event.target.value; drawChart(filteredRows()); });
 document.querySelectorAll('.view-button').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
@@ -302,5 +321,5 @@ try {
   el('status').textContent = collectionStatus;
 } catch (error) {
   el('status').textContent = '数据还未生成或暂时无法读取';
-  el('price-rows').innerHTML = `<tr><td colspan="5" class="empty">${String(error.message)}</td></tr>`;
+  el('price-rows').innerHTML = `<tr><td colspan="6" class="empty">${String(error.message)}</td></tr>`;
 }
