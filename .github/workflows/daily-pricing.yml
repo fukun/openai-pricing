@@ -1,6 +1,8 @@
 name: Collect OpenAI model pricing
 
 on:
+  push:
+    branches: [main]
   schedule:
     # 08:00 China Standard Time (UTC+8), every day.
     - cron: "0 0 * * *"
