@@ -1,6 +1,6 @@
 # OpenAI GPT-5+ pricing history
 
-每天从 [OpenAI API Pricing](https://developers.openai.com/api/docs/pricing?latest-pricing=batch) 采集 GPT-5 及以上 GPT 系列模型的 **Standard** 和 **Batch** 价格。采集器读取官方价格组件的完整模型数据（包括页面上需要点击 **All Models** 才会展开的模型），而不是只读取默认显示的几行。只有模型或价格变化时才保存价格快照并归档官方 Markdown 页面到 Wayback Machine；归档 URL 带随机参数，便于逐次直达对应快照。未变化的采集会写入每日采集日志，但不会新增价格记录或 Wayback 快照。
+每天从 [OpenAI API Pricing](https://developers.openai.com/api/docs/pricing?latest-pricing=batch) 采集 GPT-5 及以上 GPT 系列模型的 **Standard** 和 **Batch** 价格。采集器读取官方价格组件的完整模型数据（包括页面上需要点击 **All Models** 才会展开的模型），而不是只读取默认显示的几行。只有模型或价格变化时才保存价格快照并归档官方 Markdown 页面到 Wayback Machine；Wayback 归档时间戳用于区分不同版本。未变化的采集会写入每日采集日志，但不会新增价格记录或 Wayback 快照。
 
 仓库还包含一个静态仪表盘，支持搜索并筛选模型、按日期和价格类型过滤，以列表或价格走势图查看历史数据。列表可导出为 CSV，导出内容遵循当前筛选条件。
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -179,9 +178,7 @@ function snapshotSignature(rows) {
 }
 
 async function archivePricingPage() {
-  const archiveSource = new URL(ARCHIVE_PAGE_URL);
-  archiveSource.searchParams.set('capture_id', randomUUID());
-  const response = await fetch(`${WAYBACK_SAVE_URL}${archiveSource.href}`, {
+  const response = await fetch(`${WAYBACK_SAVE_URL}${ARCHIVE_PAGE_URL}`, {
     redirect: 'manual',
     headers: { 'user-agent': 'openai-pricing-history/1.0 (+https://developers.openai.com/api/docs/pricing)' },
     signal: AbortSignal.timeout(120_000),
