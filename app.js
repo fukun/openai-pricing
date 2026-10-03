@@ -1,4 +1,4 @@
-import { numericPrice, compactPriceLabel, compactPriceValue, officialModelOrder } from './price_values.mjs';
+import { numericPrice, compactPriceLabel, compactPriceValue, compactGeminiValue, officialModelOrder } from './price_values.mjs';
 
 const PROVIDER = document.body.dataset.provider ?? 'openai';
 const IS_OPENAI = PROVIDER === 'openai';
@@ -171,6 +171,7 @@ function renderList(rows) {
       wrap.className = IS_OPENAI ? 'price-values' : 'price-values provider-price-values';
       row.prices.slice(1).forEach((value, offset) => {
         const fullLabel = priceLabel(row.table_headers, offset + 1);
+        if (PROVIDER === 'gemini' && (!value || /^Not available$/i.test(value) || /Grounding|Tuning/i.test(fullLabel))) return;
         const isLongContext = /long context/i.test(fullLabel);
         if (longContext !== null && isLongContext !== longContext) return;
         const chip = document.createElement('span');
@@ -179,13 +180,23 @@ function renderList(rows) {
         label.textContent = IS_OPENAI ? fullLabel.replace(/\s*[（(](?:short|long) context[）)]/i, '') : compactPriceLabel(fullLabel);
         if (!IS_OPENAI && row.price_unit === 'per second in USD') label.textContent += ' /second';
         const amount = document.createElement('span');
-        amount.textContent = compactPriceValue(value) || '—';
+        amount.textContent = (PROVIDER === 'gemini' ? compactGeminiValue(value) : compactPriceValue(value)) || '—';
         chip.title = [fullLabel, value, row.model_version, row.pricing_notes].filter(Boolean).join(' · ');
         chip.append(label, amount);
         wrap.append(chip);
       });
       if (wrap.childElementCount) cell.append(wrap);
       else { cell.className = 'date-cell'; cell.textContent = '—'; }
+      if (PROVIDER === 'gemini') {
+        const details = document.createElement('button');
+        details.type = 'button';
+        details.className = 'price-details';
+        details.textContent = '详情';
+        details.setAttribute('aria-label', `${row.model} 完整价格及条件`);
+        const text = [row.model, row.pricing_mode, row.price_unit, ...row.prices.slice(1).map((value, offset) => `${priceLabel(row.table_headers, offset + 1)}: ${value || '—'}`)].join('\n');
+        attachPriceHelp(details, text);
+        cell.append(details);
+      }
       return cell;
     };
     const archive = document.createElement('td');
@@ -354,6 +365,58 @@ function setView(view) {
   });
   if (view === 'chart') render();
 }
+
+const PRICE_HELP = {
+  openai: '单位：美元 / 百万 tokens；页面省略重复单位。\n短、长上下文按官方对应价格列区分，阈值及适用模型以官方说明为准。\nInput 为输入，Cached input 为缓存输入，Cache writes 为缓存写入，Output 为输出；— 表示未提供该价格。\nStandard 与 Batch 分别计价。悬浮价格标签可查看原始列名和价格；导出 CSV 保留原值。',
+  deepseek: '单位：美元 / 百万 tokens；页面省略重复单位。\nInput 为缓存未命中输入，Cached input 为缓存命中输入，Output 为输出。\nPeak / Off-peak 的适用时段、模型版本等补充说明省略在列表中；悬浮价格标签可查看官方原始说明。\n导出 CSV 保留价格原值，Wayback 可查看对应采集版本。',
+  claude: '单位：美元 / 百万 tokens；页面省略重复单位和 MTok 缩写。\nStandard、Batch、Fast 分别计价；缓存写入按官方有效期区分，缓存读取单独计费。\n历史模型状态及原始模型标签可悬浮模型名查看。悬浮价格标签查看原始价格，导出 CSV 保留原值。',
+  gemini: '仅展示付费价格。token 价格默认单位为美元 / 百万 tokens，页面省略重复单位。\n按图片、秒或歌曲计费的项目保留相应单位；其余按官方 token 单位计费。Output 原列标注含思考 tokens 的，该费用已包含思考 tokens。\n列表优先显示输入、输出和缓存价格；省略不可用项、搜索/地图附加费用和微调价格。等价换算、免费额度、共享限额、分钟换算及较长条件收进详情。\n≤200K / >200K 表示上下文分档；至 / 自表示价格有效期。缓存存储的 /hour 是额外按小时计费。\n悬浮价格标签或悬浮/点击“详情”可查看该行完整内容；CSV 保留原始价格及单位。',
+};
+const helpPopover = document.createElement('div');
+helpPopover.id = 'price-help-popover';
+helpPopover.className = 'price-help-popover';
+helpPopover.setAttribute('role', 'tooltip');
+helpPopover.hidden = true;
+document.body.append(helpPopover);
+let activeHelp = null;
+let helpHideTimer;
+function showPriceHelp(button, text) {
+  clearTimeout(helpHideTimer);
+  activeHelp = button;
+  helpPopover.textContent = text;
+  helpPopover.hidden = false;
+  button.setAttribute('aria-describedby', helpPopover.id);
+  const rect = button.getBoundingClientRect();
+  const width = helpPopover.getBoundingClientRect().width;
+  helpPopover.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
+  const height = helpPopover.getBoundingClientRect().height;
+  const top = rect.bottom + 8;
+  helpPopover.style.top = `${top + height <= window.innerHeight - 12 ? top : Math.max(12, rect.top - height - 8)}px`;
+}
+function hidePriceHelp(button) {
+  if (activeHelp !== button) return;
+  helpPopover.hidden = true;
+  button.removeAttribute('aria-describedby');
+  activeHelp = null;
+}
+function attachPriceHelp(button, text) {
+  button.addEventListener('mouseenter', () => showPriceHelp(button, text));
+  button.addEventListener('mouseleave', () => {
+    helpHideTimer = setTimeout(() => { if (document.activeElement !== button) hidePriceHelp(button); }, 180);
+  });
+  button.addEventListener('focus', () => showPriceHelp(button, text));
+  button.addEventListener('blur', () => hidePriceHelp(button));
+  button.addEventListener('click', () => showPriceHelp(button, text));
+  button.addEventListener('keydown', (event) => { if (event.key === 'Escape') hidePriceHelp(button); });
+}
+helpPopover.addEventListener('mouseenter', () => clearTimeout(helpHideTimer));
+helpPopover.addEventListener('mouseleave', () => { if (activeHelp && document.activeElement !== activeHelp) hidePriceHelp(activeHelp); });
+document.querySelectorAll('[data-price-help]').forEach((button) => attachPriceHelp(button, PRICE_HELP[PROVIDER]));
+document.addEventListener('pointerdown', (event) => {
+  if (activeHelp && !activeHelp.contains(event.target) && !helpPopover.contains(event.target)) hidePriceHelp(activeHelp);
+});
+window.addEventListener('resize', () => { if (activeHelp) hidePriceHelp(activeHelp); });
+document.querySelector('.table-wrap').addEventListener('scroll', () => { if (activeHelp) hidePriceHelp(activeHelp); });
 
 modelFilter.addEventListener('focus', () => {
   renderModelOptions(modelFilter.value);

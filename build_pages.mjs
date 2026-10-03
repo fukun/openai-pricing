@@ -32,7 +32,7 @@ for (const [provider, config] of Object.entries(PROVIDERS)) {
     .replace('<small>Standard + Batch</small>', '<small>各价格类型</small>')
     .replace('<option>Standard</option><option>Batch</option>', '')
     .replace('按日期查看每日采集到的价格行', '仅在模型或价格变化时保存快照；每日检查结果见页面底部')
-    .replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><th>日期</th><th>模型</th><th>类型</th><th>价格明细</th><th>Wayback</th></tr></thead>')
+    .replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><th>日期</th><th>模型</th><th>类型</th><th>价格明细 <button type="button" class="price-help" data-price-help aria-label="价格说明">?</button></th><th>Wayback</th></tr></thead>')
     .replace('colspan="6"', 'colspan="5"')
     .replace('比较模型在所选价格类型和价格列下的每日变化', '比较单一数值的价格变化；多条件复合价格请查看列表明细');
   await mkdir(join(root, provider), { recursive: true });

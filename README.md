@@ -68,3 +68,5 @@ node --test tests/pricing.test.mjs
 `.github/workflows/daily-pricing.yml` 在每天 **北京时间 08:00** 运行，更新数据后自动部署四个页面到 GitHub Pages。将项目推送到 GitHub 并启用 Actions 后，需在仓库设置的 **Pages → Build and deployment → Source** 选择 **GitHub Actions**；随后可在 Actions 页面手动触发 `Collect model pricing`。
 
 四家模型下拉框按最近一次成功采集的官方价格文档顺序排列；已从官网下架、仅历史记录存在的模型放在末尾。每日检查日志保存模型顺序，官方调整排序不会触发新的价格快照或归档。
+
+价格表头问号说明省略的单位及计费注意事项。Gemini 列表优先显示输入、输出、缓存价格，附加费用、换算及完整条件可悬浮或点击每行“详情”查看；CSV 保留原始数据。
