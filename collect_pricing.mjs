@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PAGE_URL = 'https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
+const ARCHIVE_PAGE_URL = 'https://developers.openai.com/api/docs/pricing.md';
 const OUTPUT = resolve(dirname(fileURLToPath(import.meta.url)), 'data/pricing_history.jsonl');
+const LOG_OUTPUT = resolve(dirname(fileURLToPath(import.meta.url)), 'data/collection_log.jsonl');
+const WAYBACK_SAVE_URL = 'https://web.archive.org/save/';
 const MODEL_NAME = /^gpt-(?:5|[6-9]|[1-9]\d)(?:[.-]|$)/i;
 const MODES = ['Standard', 'Batch'];
 
@@ -145,17 +149,58 @@ async function getPrices() {
   return records;
 }
 
+async function readJsonLines(path) {
+  try {
+    const content = await readFile(path, 'utf8');
+    return content.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+async function writeCollectionLog(entry) {
+  const byDate = new Map((await readJsonLines(LOG_OUTPUT)).map((row) => [row.date_utc, row]));
+  byDate.set(entry.date_utc, entry);
+  const rows = [...byDate.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc));
+  await mkdir(dirname(LOG_OUTPUT), { recursive: true });
+  await writeFile(LOG_OUTPUT, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+}
+
+function snapshotSignature(rows) {
+  const snapshot = rows.map((row) => ({
+    model: row.model,
+    source_model_label: row.source_model_label ?? row.model,
+    pricing_mode: row.pricing_mode,
+    table_headers: row.table_headers,
+    prices: row.prices.slice(1),
+  }));
+  return JSON.stringify(snapshot.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+}
+
+async function archivePricingPage() {
+  const archiveSource = new URL(ARCHIVE_PAGE_URL);
+  archiveSource.searchParams.set('capture_id', randomUUID());
+  const response = await fetch(`${WAYBACK_SAVE_URL}${archiveSource.href}`, {
+    redirect: 'manual',
+    headers: { 'user-agent': 'openai-pricing-history/1.0 (+https://developers.openai.com/api/docs/pricing)' },
+    signal: AbortSignal.timeout(120_000),
+  });
+  const location = response.headers.get('location');
+  if (response.status < 300 || response.status >= 400 || !location) {
+    throw new Error(`Wayback Save Page Now returned HTTP ${response.status}`);
+  }
+  const waybackUrl = new URL(location, WAYBACK_SAVE_URL).href;
+  if (!waybackUrl.includes('/web/')) throw new Error(`Wayback returned an unexpected archive URL: ${waybackUrl}`);
+  return waybackUrl;
+}
+
 const now = new Date();
 const timestamp = now.toISOString();
 const date = timestamp.slice(0, 10);
-const todaysRows = await getPrices();
-
-// Merge by day/model/mode/table so reruns replace today's rows instead of duplicating them.
-let previousRows = [];
 try {
-  const content = await readFile(OUTPUT, 'utf8');
-  previousRows = content.split(/\r?\n/).filter(Boolean).map((line) => {
-    const row = JSON.parse(line);
+  const todaysRows = await getPrices();
+  const previousRows = (await readJsonLines(OUTPUT)).map((row) => {
     const canonicalModel = row.model?.replace(/\s+\(<272K context length\)$/i, '');
     if (canonicalModel && canonicalModel !== row.model) {
       row.source_model_label ??= row.model;
@@ -163,24 +208,61 @@ try {
     }
     return row;
   });
+  const lastSnapshotDate = previousRows.reduce((latest, row) => row.date_utc > latest ? row.date_utc : latest, '');
+  const lastSnapshot = previousRows.filter((row) => row.date_utc === lastSnapshotDate);
+  const changed = !lastSnapshot.length || snapshotSignature(lastSnapshot) !== snapshotSignature(todaysRows);
+
+  if (!changed) {
+    const waybackUrl = lastSnapshot.find((row) => row.wayback_url)?.wayback_url;
+    await writeCollectionLog({
+      collected_at_utc: timestamp,
+      date_utc: date,
+      status: 'unchanged',
+      model_count: new Set(todaysRows.map((row) => row.model)).size,
+      pricing_rows: 0,
+      latest_snapshot_date: lastSnapshotDate,
+      ...(waybackUrl ? { wayback_url: waybackUrl } : {}),
+    });
+    console.log(`Checked ${todaysRows.length} GPT-5+ pricing rows on ${date}; models and prices are unchanged. Skipped price history and Wayback archive.`);
+  } else {
+    const waybackUrl = await archivePricingPage();
+    const snapshotRows = todaysRows.map((row) => ({
+      collected_at_utc: timestamp,
+      date_utc: date,
+      ...row,
+      wayback_url: waybackUrl,
+    }));
+    const keyed = new Map();
+    for (const row of [...previousRows, ...snapshotRows]) {
+      const key = [row.date_utc, row.model, row.pricing_mode, JSON.stringify(row.table_headers)].join('\u0000');
+      keyed.set(key, row);
+    }
+    await mkdir(dirname(OUTPUT), { recursive: true });
+    const history = [...keyed.values()].sort((a, b) =>
+      a.date_utc.localeCompare(b.date_utc)
+      || a.model.localeCompare(b.model)
+      || a.pricing_mode.localeCompare(b.pricing_mode));
+    await writeFile(OUTPUT, `${history.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+    await writeCollectionLog({
+      collected_at_utc: timestamp,
+      date_utc: date,
+      status: 'changed',
+      model_count: new Set(todaysRows.map((row) => row.model)).size,
+      pricing_rows: todaysRows.length,
+      latest_snapshot_date: date,
+      wayback_url: waybackUrl,
+    });
+    console.log(`Detected model or price changes; saved ${todaysRows.length} pricing rows and archived ${ARCHIVE_PAGE_URL} to ${waybackUrl}`);
+  }
 } catch (error) {
-  if (error.code !== 'ENOENT') throw error;
+  await writeCollectionLog({
+    collected_at_utc: timestamp,
+    date_utc: date,
+    status: 'failed',
+    model_count: 0,
+    pricing_rows: 0,
+    error: error.message,
+  });
+  console.error(`Pricing collection failed for ${date}: ${error.message}`);
+  process.exitCode = 1;
 }
-
-const keyed = new Map();
-for (const row of [...previousRows, ...todaysRows.map((row) => ({
-  collected_at_utc: timestamp,
-  date_utc: date,
-  ...row,
-}))]) {
-  const key = [row.date_utc, row.model, row.pricing_mode, JSON.stringify(row.table_headers)].join('\u0000');
-  keyed.set(key, row);
-}
-
-await mkdir(dirname(OUTPUT), { recursive: true });
-const history = [...keyed.values()].sort((a, b) =>
-  a.date_utc.localeCompare(b.date_utc)
-  || a.model.localeCompare(b.model)
-  || a.pricing_mode.localeCompare(b.pricing_mode));
-await writeFile(OUTPUT, `${history.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
-console.log(`Saved ${todaysRows.length} GPT-5+ pricing rows for ${date} to ${OUTPUT}`);

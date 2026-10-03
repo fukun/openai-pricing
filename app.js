@@ -1,7 +1,8 @@
 const DATA_URL = 'data/pricing_history.jsonl';
+const LOG_URL = 'data/collection_log.jsonl';
 const COLORS = ['#17855d','#477aa4','#d08336','#8268ad','#d05c65','#358e9b','#a77c28','#626f80','#cf78a3','#53a36f'];
 
-const state = { rows: [], view: 'list', metric: null };
+const state = { rows: [], collectionLog: [], view: 'list', metric: null };
 const el = (id) => document.getElementById(id);
 const modelFilter = el('model-filter');
 const modelSearch = el('model-search');
@@ -86,7 +87,7 @@ function renderList(rows) {
   const body = el('price-rows');
   el('visible-count').textContent = `${rows.length.toLocaleString('zh-CN')} 条`;
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="4" class="empty">当前筛选条件没有价格记录。</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty">当前筛选条件没有价格记录。</td></tr>';
     return;
   }
   const sorted = [...rows].sort((a, b) => b.date_utc.localeCompare(a.date_utc)
@@ -118,7 +119,20 @@ function renderList(rows) {
       wrap.append(chip);
     });
     prices.append(wrap);
-    tr.append(date, model, mode, prices);
+    const archive = document.createElement('td');
+    if (row.wayback_url) {
+      const link = document.createElement('a');
+      link.className = 'archive-link';
+      link.href = row.wayback_url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = '查看 ↗';
+      archive.append(link);
+    } else {
+      archive.className = 'date-cell';
+      archive.textContent = '—';
+    }
+    tr.append(date, model, mode, prices, archive);
     return tr;
   }));
 }
@@ -131,13 +145,13 @@ function exportCsv(rows) {
   if (!rows.length) return;
   const priceColumns = [...new Set(rows.flatMap((row) => row.prices.slice(1)
     .map((_, offset) => priceLabel(row.table_headers, offset + 1))))];
-  const headers = ['日期', '模型', '官方原始模型标签', '价格类型', ...priceColumns];
+  const headers = ['日期', '模型', '官方原始模型标签', '价格类型', 'Wayback 归档', ...priceColumns];
   const lines = [headers, ...rows.map((row) => {
     const valuesByLabel = new Map();
     row.prices.slice(1).forEach((value, offset) => {
       valuesByLabel.set(priceLabel(row.table_headers, offset + 1), value);
     });
-    return [row.date_utc, row.model, row.source_model_label ?? row.model, row.pricing_mode,
+    return [row.date_utc, row.model, row.source_model_label ?? row.model, row.pricing_mode, row.wayback_url ?? '',
       ...priceColumns.map((label) => valuesByLabel.get(label) ?? '')];
   })].map((line) => line.map(csvCell).join(',')).join('\r\n');
   const blob = new Blob([`\uFEFF${lines}`], { type: 'text/csv;charset=utf-8' });
@@ -268,13 +282,25 @@ document.querySelectorAll('.view-button').forEach((button) => button.addEventLis
 window.addEventListener('resize', () => { if (state.view === 'chart') drawChart(filteredRows()); });
 
 try {
-  const response = await fetch(DATA_URL, { cache: 'no-store' });
+  const [response, logResponse] = await Promise.all([
+    fetch(DATA_URL, { cache: 'no-store' }),
+    fetch(LOG_URL, { cache: 'no-store' }).catch(() => null),
+  ]);
   if (!response.ok) throw new Error(`数据请求失败：HTTP ${response.status}`);
   state.rows = parseData(await response.text());
+  if (logResponse?.ok) {
+    state.collectionLog = (await logResponse.text()).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  }
   renderSummary();
   render();
-  el('status').textContent = `已载入 ${state.rows.length.toLocaleString('zh-CN')} 条价格记录`;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayLog = state.collectionLog.find((entry) => entry.date_utc === today);
+  const collectionStatus = todayLog?.status === 'unchanged' ? '今日已采集；模型和价格无变化'
+    : todayLog?.status === 'changed' ? '今日已采集；模型或价格有变化'
+      : todayLog?.status === 'failed' ? '今日采集失败'
+        : `已载入 ${state.rows.length.toLocaleString('zh-CN')} 条价格记录`;
+  el('status').textContent = collectionStatus;
 } catch (error) {
   el('status').textContent = '数据还未生成或暂时无法读取';
-  el('price-rows').innerHTML = `<tr><td colspan="4" class="empty">${String(error.message)}</td></tr>`;
+  el('price-rows').innerHTML = `<tr><td colspan="5" class="empty">${String(error.message)}</td></tr>`;
 }

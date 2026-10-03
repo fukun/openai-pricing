@@ -27,12 +27,13 @@ jobs:
       - name: Collect Standard and Batch prices
         run: node collect_pricing.mjs
       - name: Save updated history
+        if: always()
         run: |
-          if [ -n "$(git status --porcelain -- data/pricing_history.jsonl)" ]; then
+          if [ -n "$(git status --porcelain -- data/pricing_history.jsonl data/collection_log.jsonl)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/pricing_history.jsonl
-            git commit -m "Record OpenAI model pricing for $(date -u +%F)"
+            git add data/pricing_history.jsonl data/collection_log.jsonl
+            git commit -m "Record OpenAI pricing collection for $(date -u +%F)"
             git push
           fi
       - name: Configure GitHub Pages
@@ -41,7 +42,7 @@ jobs:
         run: |
           mkdir -p dist/data
           cp index.html app.js styles.css dist/
-          cp data/pricing_history.jsonl dist/data/
+          cp data/pricing_history.jsonl data/collection_log.jsonl dist/data/
       - name: Upload static site
         uses: actions/upload-pages-artifact@v5
         with:
