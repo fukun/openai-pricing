@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PROVIDERS, PARSERS } from './pricing_sources.mjs';
+import { saveAuthenticated, waybackCredentials } from './wayback_api.mjs';
 
 export async function readJsonLines(file) {
   try { return (await readFile(file, 'utf8')).split(/\r?\n/).filter(Boolean).map(JSON.parse); }
@@ -28,6 +29,15 @@ export async function saveLog(directory, entry) {
 }
 
 export async function archiveSource(sourceUrl, options = {}) {
+  const credentials = waybackCredentials();
+  if (credentials) {
+    const captureUrl = await saveAuthenticated(sourceUrl, credentials);
+    try { return await verifyArchive(captureUrl, sourceUrl, options); }
+    catch (error) {
+      if (error.code === 'WAYBACK_REPLAY_PENDING') error.candidate_url = captureUrl;
+      throw error;
+    }
+  }
   const response = await fetch(`https://web.archive.org/save/${sourceUrl}`, {
     redirect: 'manual', signal: AbortSignal.timeout(40_000),
     headers: { 'user-agent': 'model-pricing-history/1.0 (+https://github.com/fukun/openai-pricing)' },

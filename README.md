@@ -74,3 +74,16 @@ node --test tests/pricing.test.mjs
 四家的 Wayback 保存结果及已有链接都会验证实际回放时间、来源 URL 和内容。OpenAI 比对采集的 Markdown 原文，其余三家比对解析后的模型/价格；跳转旧版本或内容不匹配会标记归档待重试，不展示失配链接。归档失败不影响价格保存，无价格变化只更新检查日志并重试待完成归档。
 
 四家采集流程同步完成归档回放校验，最多检查 3 次；内容一致才记录归档成功并显示“查看”。本次检查失败统一显示“归档待重试”，保留返回地址供后续重试，避免重复提交保存。内容一致的旧快照可使用其实际时间戳链接。
+
+## Internet Archive 账号认证与结果邮件
+
+在仓库 Settings → Secrets and variables → Actions 中添加两个 Repository secrets：
+
+- `IA_ACCESS_KEY`：Internet Archive S3 access key。
+- `IA_SECRET_KEY`：Internet Archive S3 secret key。
+
+两者配置后，四家共用的归档程序将使用认证 API 提交请求，等待任务状态成功，再校验归档内容。每次实际提交新归档时，会请求 Wayback 向该账号的注册邮箱发送结果报告；模型和价格未变化且已有有效归档时，不重复归档或发邮件。
+
+程序通过任务状态及内容校验判断成功，不自动读取邮箱。没有配置两个 Secrets 时，继续使用匿名保存。密钥不写入代码、历史数据或日志。
+
+本地运行可从未提交的 `.env` 文件加载密钥：`node --env-file=.env collect_all.mjs`。设置 `IA_EMAIL_RESULT=0` 可关闭结果邮件请求。
