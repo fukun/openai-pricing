@@ -27,7 +27,9 @@ Gemini 仅采集及展示付费价格。各家保存官方价格单位、条件�
 
 新增三家的数据分别保存在 `data/deepseek/`、`data/claude/`、`data/gemini/`，各自包含 `pricing_history.jsonl`、`collection_log.jsonl` 和 `sources/`。只有模型、模型版本、价格或价格适用条件变化时写入价格快照及完整采集原文；未变化只更新日志。历史按 UTC 日期保存，同一天重复采集保留该天最后一次价格快照和日志，之前日期不会被覆盖。
 
-DeepSeek 保存 HTML 原文为 `.html.txt`，Claude 和 Gemini 保存官方 Markdown 原文。新增三家在 Wayback 暂时失败时仍保存价格及原文，标记归档待重试；后续检查可以补全之前未成功的归档链接。原文复制和价格历史不会因为归档重试而重复新增。Wayback 使用原始官方 URL，不添加随机参数；只有拿到包含时间戳的归档地址才标记成功。
+DeepSeek 保存 HTML 原文为 `.html.txt`，Claude 和 Gemini 保存官方 Markdown 原文。新增三家在 Wayback 暂时失败时仍保存价格及原文，标记归档待重试；后续检查可以补全之前未成功的归档链接。原文复制和价格历史不会因为归档重试而重复新增。
+
+四家每次提交新归档时，在官方 URL 末尾添加 `capture_id` 参数，值为随机生成的 32 位小写十六进制字符串。例如 `pricing.md?capture_id=<32位随机字符串>`；Gemini 保留原有 `hl=zh-cn`，使用 `&capture_id=...`。实际提交地址保存在 `archive_source_url` 中，归档校验与已返回链接的重试都使用该地址，不重新生成参数。只有任务完成且归档内容校验通过才标记成功。已有有效归档继续复用；模型和价格未变化时不会为添加随机参数而重新归档。
 
 Actions 将所有 `data/` 更新提交到 `main`，再部署到 Pages。四家的采集互相独立，一家失败仍会检查其余三家并发布可用数据和失败日志。
 

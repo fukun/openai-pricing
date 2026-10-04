@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { PROVIDERS, PARSERS } from './pricing_sources.mjs';
 import { saveAuthenticated, waybackCredentials } from './wayback_api.mjs';
@@ -26,6 +27,12 @@ export async function saveLog(directory, entry) {
   const byDate = new Map((await readJsonLines(file)).map((row) => [row.date_utc, row]));
   byDate.set(entry.date_utc, entry);
   await writeJsonLines(file, [...byDate.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc)));
+}
+
+export function createArchiveSourceUrl(sourceUrl) {
+  const url = new URL(sourceUrl);
+  url.searchParams.set('capture_id', randomBytes(16).toString('hex'));
+  return url.href;
 }
 
 export async function archiveSource(sourceUrl, options = {}) {
@@ -131,11 +138,12 @@ export async function recordCollection({ provider, rows, source, now = new Date(
       source_url: config.sourceUrl, source_snapshot: sourcePath, archive_source_url: config.archiveUrl }));
   }
   let archiveError;
+  let archiveSourceUrl = snapshot.find((row) => row.archive_source_url)?.archive_source_url || config.archiveUrl;
   let waybackUrl = snapshot.find((row) => row.wayback_url)?.wayback_url;
   let candidateUrl = snapshot.find((row) => row.candidate_archive_url)?.candidate_archive_url;
   const existingUrl = waybackUrl || candidateUrl;
   if (existingUrl) {
-    try { waybackUrl = await verify(existingUrl, config.archiveUrl, { provider, rows }) || existingUrl; candidateUrl = undefined; }
+    try { waybackUrl = await verify(existingUrl, archiveSourceUrl, { provider, rows }) || existingUrl; candidateUrl = undefined; }
     catch (error) {
       waybackUrl = undefined;
       candidateUrl = error.code === 'WAYBACK_REPLAY_PENDING' ? existingUrl : undefined;
@@ -144,14 +152,16 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   }
   // Retain failed capture URLs for retry, while reporting this run as unsuccessful.
   if (!waybackUrl && !candidateUrl) {
-    try { waybackUrl = await archive(config.archiveUrl, { provider, rows }); archiveError = undefined; }
+    archiveSourceUrl = createArchiveSourceUrl(config.archiveUrl);
+    try { waybackUrl = await archive(archiveSourceUrl, { provider, rows }); archiveError = undefined; }
     catch (error) { archiveError = error.message; candidateUrl = error.candidate_url; }
   }
   const archiveStatus = waybackUrl ? 'saved' : 'pending';
-  const previousArchive = snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]);
+  const previousArchive = snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url, row.archive_source_url]);
   snapshot = snapshot.map(({ wayback_url, candidate_archive_url, ...row }) => ({ ...row, archive_status: archiveStatus,
+    archive_source_url: archiveSourceUrl,
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
-  const archiveChanged = JSON.stringify(previousArchive) !== JSON.stringify(snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]));
+  const archiveChanged = JSON.stringify(previousArchive) !== JSON.stringify(snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url, row.archive_source_url]));
   if (changed || archiveChanged) {
     const merged = new Map();
     const retained = changed ? previous.filter((row) => row.date_utc !== date) : previous;
@@ -166,7 +176,7 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   const log = { provider, date_utc: date, collected_at_utc: timestamp, status: changed ? 'changed' : 'unchanged',
     model_count: new Set(rows.map((row) => row.model)).size,
     model_order: [...new Set(rows.map((row) => row.model))], pricing_rows: changed ? rows.length : 0,
-    latest_snapshot_date: changed ? date : latestDate, archive_status: archiveStatus,
+    latest_snapshot_date: changed ? date : latestDate, archive_status: archiveStatus, archive_source_url: archiveSourceUrl,
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}),
     ...(archiveError ? { archive_error: archiveError } : {}) };
   await saveLog(directory, log);

@@ -3,7 +3,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { archiveSource, verifyArchive } from './provider_store.mjs';
+import { archiveSource, createArchiveSourceUrl, verifyArchive } from './provider_store.mjs';
 
 const PAGE_URL = 'https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
 const ARCHIVE_PAGE_URL = 'https://developers.openai.com/api/docs/pricing.md';
@@ -197,6 +197,8 @@ try {
   let snapshotRows = changed ? todaysRows.map((row) => ({ ...row, collected_at_utc: timestamp, date_utc: date })) : lastSnapshot;
   let waybackUrl = changed ? undefined : lastSnapshot.find((row) => row.wayback_url)?.wayback_url;
   let candidateUrl = changed ? undefined : lastSnapshot.find((row) => row.candidate_archive_url)?.candidate_archive_url;
+  let archiveSourceUrl = changed ? ARCHIVE_PAGE_URL
+    : lastSnapshot.find((row) => row.archive_source_url)?.archive_source_url || ARCHIVE_PAGE_URL;
   let archiveError;
   let archiveCorrection = false;
   let source;
@@ -216,7 +218,7 @@ try {
     }
     const existingUrl = waybackUrl || candidateUrl;
     if (existingUrl) {
-      try { waybackUrl = await verifyArchive(existingUrl, ARCHIVE_PAGE_URL, { source }); candidateUrl = undefined; }
+      try { waybackUrl = await verifyArchive(existingUrl, archiveSourceUrl, { source }); candidateUrl = undefined; }
       catch (error) {
         archiveCorrection = true;
         waybackUrl = undefined;
@@ -225,7 +227,8 @@ try {
       }
     }
     if (!waybackUrl && !candidateUrl) {
-      waybackUrl = await archiveSource(ARCHIVE_PAGE_URL, { source });
+      archiveSourceUrl = createArchiveSourceUrl(ARCHIVE_PAGE_URL);
+      waybackUrl = await archiveSource(archiveSourceUrl, { source });
       archiveError = undefined;
     }
   } catch (error) {
@@ -235,11 +238,11 @@ try {
     candidateUrl = error.candidate_url || candidateUrl;
   }
   const archiveStatus = waybackUrl ? 'saved' : 'pending';
-  const oldArchive = JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]));
+  const oldArchive = JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url, row.archive_source_url]));
   snapshotRows = snapshotRows.map(({ wayback_url, candidate_archive_url, ...row }) => ({ ...row,
-    archive_status: archiveStatus, ...(waybackUrl ? { wayback_url: waybackUrl } : {}),
+    archive_status: archiveStatus, archive_source_url: archiveSourceUrl, ...(waybackUrl ? { wayback_url: waybackUrl } : {}),
     ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
-  archiveCorrection ||= oldArchive !== JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]));
+  archiveCorrection ||= oldArchive !== JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url, row.archive_source_url]));
   const repaired = !lastSnapshot.some((row) => row.wayback_url) && waybackUrl;
   if (changed || archiveCorrection || repaired) {
     const keyed = new Map();
@@ -258,7 +261,7 @@ try {
     model_count: new Set(todaysRows.map((row) => row.model)).size,
     model_order: [...new Set(todaysRows.map((row) => row.model))],
     pricing_rows: changed ? todaysRows.length : 0, latest_snapshot_date: changed ? date : lastSnapshotDate,
-    archive_status: archiveStatus,
+    archive_status: archiveStatus, archive_source_url: archiveSourceUrl,
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}),
     ...(archiveError ? { archive_error: archiveError } : {}),
   });
