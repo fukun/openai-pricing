@@ -234,7 +234,7 @@ try {
     waybackUrl = undefined;
     candidateUrl = error.candidate_url || candidateUrl;
   }
-  const archiveStatus = waybackUrl ? 'saved' : candidateUrl ? 'verifying' : 'pending';
+  const archiveStatus = waybackUrl ? 'saved' : 'pending';
   const oldArchive = JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]));
   snapshotRows = snapshotRows.map(({ wayback_url, candidate_archive_url, ...row }) => ({ ...row,
     archive_status: archiveStatus, ...(waybackUrl ? { wayback_url: waybackUrl } : {}),

@@ -48,7 +48,18 @@ export async function archiveSource(sourceUrl, options = {}) {
   }
 }
 
-export async function verifyArchive(archiveUrl, sourceUrl, { provider, rows, source } = {}) {
+export async function verifyArchive(archiveUrl, sourceUrl, options = {}) {
+  // Finish verification within this collection run, with bounded retries.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { return await verifyReplay(archiveUrl, sourceUrl, options); }
+    catch (error) {
+      if (error.code !== 'WAYBACK_REPLAY_PENDING' || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 2000));
+    }
+  }
+}
+
+async function verifyReplay(archiveUrl, sourceUrl, { provider, rows, source } = {}) {
   const url = new URL(archiveUrl);
   if (url.hostname !== 'web.archive.org' || !/^\/web\/\d{14}(?:[a-z_]+)?\/https?:\/\//.test(url.pathname)) {
     throw new Error('Invalid timestamped Wayback capture URL.');
@@ -121,12 +132,12 @@ export async function recordCollection({ provider, rows, source, now = new Date(
       archiveError = error.message;
     }
   }
-  // A returned capture awaiting replay is checked again later, without saving again.
+  // Retain failed capture URLs for retry, while reporting this run as unsuccessful.
   if (!waybackUrl && !candidateUrl) {
     try { waybackUrl = await archive(config.archiveUrl, { provider, rows }); archiveError = undefined; }
     catch (error) { archiveError = error.message; candidateUrl = error.candidate_url; }
   }
-  const archiveStatus = waybackUrl ? 'saved' : candidateUrl ? 'verifying' : 'pending';
+  const archiveStatus = waybackUrl ? 'saved' : 'pending';
   const previousArchive = snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url]);
   snapshot = snapshot.map(({ wayback_url, candidate_archive_url, ...row }) => ({ ...row, archive_status: archiveStatus,
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
