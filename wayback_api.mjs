@@ -21,6 +21,20 @@ async function readResponse(response) {
   catch { throw new Error('Wayback authenticated API did not return JSON.'); }
 }
 
+async function requestJson(url, options) {
+  // Rate limits apply to submitting captures and querying their status.
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url, options);
+    if (response.status !== 429 || attempt >= 2) return readResponse(response);
+    const retryAfter = response.headers.get('retry-after');
+    const seconds = /^\d+$/.test(retryAfter ?? '') ? Number(retryAfter)
+      : (Date.parse(retryAfter ?? '') - Date.now()) / 1000;
+    const delay = Math.min(180_000, Math.max(5000, Number.isFinite(seconds) ? seconds * 1000 : 60_000));
+    await response.body?.cancel();
+    await sleep(delay, undefined, { signal: options.signal });
+  }
+}
+
 function captureUrl(result) {
   if (!/^\d{14}$/.test(String(result.timestamp)) || typeof result.original_url !== 'string') {
     throw new Error('Wayback reported success without a timestamped source URL.');
@@ -34,22 +48,26 @@ export async function saveAuthenticated(sourceUrl, credentials) {
   const parameters = new URLSearchParams({ url: sourceUrl, skip_first_archive: '1' });
   if (process.env.IA_EMAIL_RESULT !== '0') parameters.set('email_result', '1');
   if (/\.(?:md|txt)(?:\?|$)/i.test(sourceUrl)) parameters.set('force_get', '1');
-  const submitted = await readResponse(await fetch(`${BASE_URL}/save`, {
+  const submitted = await requestJson(`${BASE_URL}/save`, {
     method: 'POST', redirect: 'error', headers, body: parameters, signal,
-  }));
+  });
   if (submitted.status === 'success') return captureUrl(submitted);
   if (typeof submitted.job_id !== 'string' || !/^[\w-]{1,150}$/.test(submitted.job_id)) {
     throw new Error('Wayback did not accept the authenticated capture request.');
   }
   const statusUrl = `${BASE_URL}/save/status/${encodeURIComponent(submitted.job_id)}`;
   while (!signal.aborted) {
-    const result = await readResponse(await fetch(statusUrl, { headers, signal, redirect: 'error', cache: 'no-store' }));
+    const result = await requestJson(statusUrl, { headers, signal, redirect: 'error', cache: 'no-store' });
     if (result.status === 'success') {
       return captureUrl(result);
     }
-    if (result.status === 'error') throw new Error('Wayback reported a capture failure.');
+    if (result.status === 'error') {
+      const reason = /^error:[a-z0-9-]+$/.test(result.status_ext ?? '') ? ` (${result.status_ext})` : '';
+      throw new Error(`Wayback reported a capture failure${reason}.`);
+    }
     if (result.status !== 'pending') throw new Error('Wayback returned an unexpected capture status.');
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
   throw new Error('Wayback capture did not complete within three minutes.');
 }
+import { setTimeout as sleep } from 'node:timers/promises';

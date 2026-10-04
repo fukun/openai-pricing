@@ -4,9 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
+let firstProvider = true;
 // Every provider is attempted even if another source is unavailable.
 for (const [script, ...args] of [['collect_pricing.mjs'], ['collect_providers.mjs', 'deepseek'],
   ['collect_providers.mjs', 'claude'], ['collect_providers.mjs', 'gemini']]) {
+  // Space requests across providers to avoid Save Page Now rate limits.
+  if (!firstProvider) await new Promise((resolve) => setTimeout(resolve, 30_000));
+  firstProvider = false;
   const code = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [...process.execArgv, join(root, script), ...args], { stdio: 'inherit' });
     child.once('error', reject);
