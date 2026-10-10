@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { PROVIDERS, PARSERS } from './pricing_sources.mjs';
 import { saveAuthenticated, waybackCredentials } from './wayback_api.mjs';
+import { pricingRowSignature } from './price_values.mjs';
 
 export async function readJsonLines(file) {
   try { return (await readFile(file, 'utf8')).split(/\r?\n/).filter(Boolean).map(JSON.parse); }
@@ -10,11 +11,7 @@ export async function readJsonLines(file) {
 }
 
 export function snapshotSignature(rows) {
-  const values = rows.map((row) => ({ model: row.model, model_version: row.model_version,
-    source_model_label: row.source_model_label, pricing_mode: row.pricing_mode,
-    pricing_tier: row.pricing_tier, price_unit: row.price_unit, price_units: row.price_units, pricing_notes: row.pricing_notes,
-    table_headers: row.table_headers, prices: row.prices.slice(1) }));
-  return JSON.stringify(values.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  return JSON.stringify(rows.map(pricingRowSignature).sort());
 }
 
 export async function writeJsonLines(file, rows) {
@@ -38,6 +35,37 @@ export function groupSnapshots(rows) {
     groups.get(row.date_utc).push(row);
   }
   return groups;
+}
+
+export async function compactStoredSnapshots(directory, rows, signature = snapshotSignature) {
+  const snapshots = groupSnapshots(rows);
+  const retained = [];
+  const removed = new Map();
+  let lastSignature;
+  let lastDate;
+  for (const date of [...snapshots.keys()].sort()) {
+    const snapshot = snapshots.get(date);
+    const currentSignature = signature(snapshot);
+    if (currentSignature === lastSignature) {
+      removed.set(date, { retained_date: lastDate, source_snapshot: snapshot[0].source_snapshot });
+    } else {
+      retained.push(...snapshot);
+      lastDate = date;
+      lastSignature = currentSignature;
+    }
+  }
+  if (removed.size) {
+    const logFile = join(directory, 'collection_log.jsonl');
+    const logs = await readJsonLines(logFile);
+    await writeJsonLines(logFile, logs.map((entry) => {
+      const duplicate = removed.get(entry.date_utc);
+      const latest = removed.get(entry.latest_snapshot_date)?.retained_date;
+      return { ...entry, ...(latest ? { latest_snapshot_date: latest } : {}),
+        ...(duplicate && entry.status !== 'failed' ? { status: 'unchanged', pricing_rows: 0,
+          latest_snapshot_date: duplicate.retained_date, removed_duplicate_snapshot: duplicate } : {}) };
+    }));
+  }
+  return { rows: retained, removedDates: [...removed.keys()] };
 }
 
 export async function restoreStoredSnapshots(provider, history, dataDirectory) {
@@ -171,7 +199,8 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   await mkdir(directory, { recursive: true });
   const file = join(directory, 'pricing_history.jsonl');
   const recovered = await restoreStoredSnapshots(provider, await readJsonLines(file), dataDirectory);
-  const previous = recovered.rows;
+  const compacted = await compactStoredSnapshots(directory, recovered.rows);
+  const previous = compacted.rows;
   const date = now.toISOString().slice(0, 10);
   const timestamp = now.toISOString();
   const latestDate = previous.reduce((latest, row) => row.date_utc > latest ? row.date_utc : latest, '');
@@ -210,7 +239,7 @@ export async function recordCollection({ provider, rows, source, now = new Date(
     archive_source_url: archiveSourceUrl,
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
   const archiveChanged = JSON.stringify(previousArchive) !== JSON.stringify(snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url, row.archive_source_url]));
-  if (changed || archiveChanged || recovered.restoredDates.length) {
+  if (changed || archiveChanged || recovered.restoredDates.length || compacted.removedDates.length) {
     const merged = new Map();
     const retained = changed ? previous.filter((row) => row.date_utc !== date) : previous;
     for (const row of [...retained, ...snapshot]) {

@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { archiveSource, createArchiveSourceUrl, verifyArchive, readJsonLines, saveLog, writeJsonLines,
-  snapshotRowKey } from './provider_store.mjs';
+  snapshotRowKey, compactStoredSnapshots } from './provider_store.mjs';
 
 const PAGE_URL = 'https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
 const ARCHIVE_PAGE_URL = 'https://developers.openai.com/api/docs/pricing.md';
@@ -169,7 +169,7 @@ const timestamp = now.toISOString();
 const date = timestamp.slice(0, 10);
 try {
   const todaysRows = await getPrices();
-  const previousRows = (await readJsonLines(OUTPUT)).map((row) => {
+  const normalizedRows = (await readJsonLines(OUTPUT)).map((row) => {
     const canonicalModel = row.model?.replace(/\s+\(<272K context length\)$/i, '');
     if (canonicalModel && canonicalModel !== row.model) {
       row.source_model_label ??= row.model;
@@ -177,6 +177,8 @@ try {
     }
     return row;
   });
+  const compacted = await compactStoredSnapshots(dirname(OUTPUT), normalizedRows, snapshotSignature);
+  const previousRows = compacted.rows;
   const lastSnapshotDate = previousRows.reduce((latest, row) => row.date_utc > latest ? row.date_utc : latest, '');
   const lastSnapshot = previousRows.filter((row) => row.date_utc === lastSnapshotDate);
   const changed = !lastSnapshot.length || snapshotSignature(lastSnapshot) !== snapshotSignature(todaysRows);
@@ -231,7 +233,7 @@ try {
     ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
   archiveCorrection ||= oldArchive !== JSON.stringify(snapshotRows.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url, row.archive_source_url]));
   const repaired = !lastSnapshot.some((row) => row.wayback_url) && waybackUrl;
-  if (changed || archiveCorrection || repaired) {
+  if (changed || archiveCorrection || repaired || compacted.removedDates.length) {
     const keyed = new Map();
     const retained = changed ? previousRows.filter((row) => row.date_utc !== date) : previousRows;
     for (const row of [...retained, ...snapshotRows]) {

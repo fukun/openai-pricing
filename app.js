@@ -1,4 +1,4 @@
-import { numericPrice, compactPriceLabel, compactPriceValue, compactGeminiValue, officialModelOrder } from './price_values.mjs?v=2929c90cc31a';
+import { numericPrice, compactPriceLabel, compactPriceValue, compactGeminiValue, officialModelOrder, priceChangeRows } from './price_values.mjs?v=42319475c5dc';
 
 const PROVIDER = document.body.dataset.provider ?? 'openai';
 const IS_OPENAI = PROVIDER === 'openai';
@@ -9,7 +9,7 @@ const LOG_URL = new URL(`${DATA_DIRECTORY}collection_log.jsonl`, SITE_ROOT);
 const TABLE_COLUMNS = IS_OPENAI ? 6 : 5;
 const COLORS = ['#17855d','#477aa4','#d08336','#8268ad','#d05c65','#358e9b','#a77c28','#626f80','#cf78a3','#53a36f'];
 
-const state = { rows: [], collectionLog: [], view: 'list', metric: null };
+const state = { rows: [], changeRows: [], collectionLog: [], view: 'list', metric: null };
 const el = (id) => document.getElementById(id);
 const modelFilter = el('model-filter');
 const modelOptions = el('model-options');
@@ -49,8 +49,8 @@ function metricLabel(row, index) {
   return !IS_OPENAI && unit ? `${label} · ${unit}` : label;
 }
 
-function filteredRows() {
-  return dateRange(state.rows).filter((row) =>
+function filteredRows(rows = state.changeRows) {
+  return dateRange(rows).filter((row) =>
     (!selectedModel || row.model === selectedModel)
     && (modeFilter.value === 'all' || row.pricing_mode === modeFilter.value));
 }
@@ -146,7 +146,7 @@ function renderSummary() {
   const models = new Set(state.rows.map((row) => row.model));
   const dates = state.rows.map((row) => row.date_utc).sort();
   el('model-count').textContent = String(models.size);
-  el('record-count').textContent = state.rows.length.toLocaleString('zh-CN');
+  el('record-count').textContent = state.changeRows.length.toLocaleString('zh-CN');
   el('latest-date').textContent = dates.at(-1) ?? '—';
   const modes = [...new Set(state.rows.map((row) => row.pricing_mode))].sort();
   modeFilter.replaceChildren(new Option('全部类型', 'all'), ...modes.map((mode) => new Option(mode, mode)));
@@ -286,7 +286,8 @@ function drawChart(rows) {
     if (index < 0) continue;
     const value = numericPrice(row.prices[index]);
     if (value == null) continue;
-    const name = [row.model, modeFilter.value === 'all' ? row.pricing_mode : ''].filter(Boolean).join(' · ');
+    const name = [row.source_model_label ?? row.model, modeFilter.value === 'all' ? row.pricing_mode : '',
+      row.pricing_tier].filter(Boolean).join(' · ');
     if (!series.has(name)) series.set(name, new Map());
     series.get(name).set(row.date_utc, value);
   }
@@ -360,10 +361,10 @@ function drawChart(rows) {
 }
 
 function render() {
-  const rows = filteredRows();
-  renderMetricOptions(rows);
-  renderList(rows);
-  if (state.view === 'chart') drawChart(rows);
+  const chartRows = filteredRows(state.rows);
+  renderMetricOptions(chartRows);
+  renderList(filteredRows());
+  if (state.view === 'chart') drawChart(chartRows);
 }
 
 function setView(view) {
@@ -468,9 +469,9 @@ modelOptions.addEventListener('mousemove', (event) => {
 modelFilter.addEventListener('blur', () => setModelOptionsOpen(false));
 for (const filter of [modeFilter, fromFilter, toFilter]) filter.addEventListener('change', render);
 el('export-csv').addEventListener('click', () => exportCsv(filteredRows()));
-el('metric-filter').addEventListener('change', (event) => { state.metric = event.target.value; drawChart(filteredRows()); });
+el('metric-filter').addEventListener('change', (event) => { state.metric = event.target.value; drawChart(filteredRows(state.rows)); });
 document.querySelectorAll('.view-button').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
-window.addEventListener('resize', () => { if (state.view === 'chart') drawChart(filteredRows()); });
+window.addEventListener('resize', () => { if (state.view === 'chart') drawChart(filteredRows(state.rows)); });
 
 try {
   const [response, logResponse] = await Promise.all([
@@ -479,6 +480,7 @@ try {
   ]);
   if (!response.ok) throw new Error(`数据请求失败：HTTP ${response.status}`);
   state.rows = parseData(await response.text());
+  state.changeRows = priceChangeRows(state.rows);
   if (logResponse?.ok) {
     state.collectionLog = (await logResponse.text()).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
   }
@@ -489,7 +491,7 @@ try {
   const collectionStatus = todayLog?.status === 'unchanged' ? '今日已采集；模型和价格无变化'
     : todayLog?.status === 'changed' ? '今日已采集；模型或价格有变化'
       : todayLog?.status === 'failed' ? '今日采集失败'
-        : `已载入 ${state.rows.length.toLocaleString('zh-CN')} 条价格记录`;
+        : `已载入 ${state.changeRows.length.toLocaleString('zh-CN')} 条价格记录`;
   el('status').textContent = collectionStatus + (['pending', 'verifying'].includes(todayLog?.archive_status) ? '；Wayback 归档待重试' : '');
   const historicalPending = todayLog?.archive_repair?.pending_dates?.filter((date) => date !== todayLog.latest_snapshot_date) ?? [];
   if (historicalPending.length) el('status').textContent += `；历史归档待重试：${historicalPending.length}天`;

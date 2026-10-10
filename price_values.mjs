@@ -80,3 +80,33 @@ export function compactGeminiValue(value) {
     .trim();
   return text.length > 90 ? `${text.slice(0, 89).trimEnd()}…` : text;
 }
+// Compare monitored data only; collection dates, source order and archive metadata
+// do not represent price changes.
+export function pricingRowSignature(row) {
+  return JSON.stringify({ model: row.model, model_version: row.model_version,
+    source_model_label: row.source_model_label ?? row.model, pricing_mode: row.pricing_mode,
+    pricing_tier: row.pricing_tier, price_unit: row.price_unit, price_units: row.price_units,
+    pricing_notes: row.pricing_notes, table_headers: row.table_headers, prices: row.prices.slice(1) });
+}
+
+export function priceChangeRows(rows) {
+  const snapshots = new Map();
+  for (const row of rows) {
+    if (!snapshots.has(row.date_utc)) snapshots.set(row.date_utc, []);
+    snapshots.get(row.date_utc).push(row);
+  }
+  const changes = [];
+  let previous = new Set();
+  for (const date of [...snapshots.keys()].sort()) {
+    const current = new Set();
+    for (const row of snapshots.get(date)) {
+      const signature = pricingRowSignature(row);
+      if (!previous.has(signature) && !current.has(signature)) changes.push(row);
+      current.add(signature);
+    }
+    // Compare adjacent complete snapshots, preserving reversals and reappearances.
+    previous = current;
+  }
+  return changes;
+}
+
