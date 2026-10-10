@@ -491,6 +491,8 @@ try {
       : todayLog?.status === 'failed' ? '今日采集失败'
         : `已载入 ${state.rows.length.toLocaleString('zh-CN')} 条价格记录`;
   el('status').textContent = collectionStatus + (['pending', 'verifying'].includes(todayLog?.archive_status) ? '；Wayback 归档待重试' : '');
+  const historicalPending = todayLog?.archive_repair?.pending_dates?.filter((date) => date !== todayLog.latest_snapshot_date) ?? [];
+  if (historicalPending.length) el('status').textContent += `；历史归档待重试：${historicalPending.length}天`;
 } catch (error) {
   el('status').textContent = '数据还未生成或暂时无法读取';
   const cell = document.createElement('td');

@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+
 const BASE_URL = 'https://web.archive.org';
 const USER_AGENT = 'model-pricing-history/1.0 (+https://github.com/fukun/openai-pricing)';
 
@@ -22,28 +24,48 @@ async function readResponse(response) {
 }
 
 async function requestJson(url, options) {
-  // Rate limits apply to submitting captures and querying their status.
+  // Retry transient failures without losing the current job or its source URL.
   for (let attempt = 0; ; attempt++) {
-    const response = await fetch(url, options);
-    if (response.status !== 429 || attempt >= 2) return readResponse(response);
+    let response;
+    try { response = await fetch(url, options); }
+    catch (error) {
+      if (options.signal.aborted) throw new Error('Wayback capture did not complete within three minutes.');
+      if (attempt >= 2) throw error;
+      await sleep((attempt + 1) * 5000, undefined, { signal: options.signal });
+      continue;
+    }
+    if (![429, 502, 503, 504].includes(response.status) || attempt >= 2) return readResponse(response);
     const retryAfter = response.headers.get('retry-after');
     const seconds = /^\d+$/.test(retryAfter ?? '') ? Number(retryAfter)
       : (Date.parse(retryAfter ?? '') - Date.now()) / 1000;
-    const delay = Math.min(180_000, Math.max(5000, Number.isFinite(seconds) ? seconds * 1000 : 60_000));
+    const fallbackDelay = response.status === 429 ? 60_000 : (attempt + 1) * 5000;
+    const delay = Math.min(180_000, Math.max(5000, Number.isFinite(seconds) ? seconds * 1000 : fallbackDelay));
     await response.body?.cancel();
     await sleep(delay, undefined, { signal: options.signal });
   }
 }
 
 function captureUrl(result) {
-  if (!/^\d{14}$/.test(String(result.timestamp)) || typeof result.original_url !== 'string') {
+  const timestamp = String(result.timestamp);
+  const iso = /^\d{14}$/.test(timestamp) ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}T${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:${timestamp.slice(12, 14)}Z` : '';
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().replace(/\D/g, '').slice(0, 14) !== timestamp
+    || typeof result.original_url !== 'string') {
     throw new Error('Wayback reported success without a timestamped source URL.');
   }
-  return `${BASE_URL}/web/${result.timestamp}/${result.original_url}`;
+  return `${BASE_URL}/web/${timestamp}/${result.original_url}`;
 }
 
 export async function saveAuthenticated(sourceUrl, credentials) {
   const signal = AbortSignal.timeout(180_000);
+  try { return await runCapture(sourceUrl, credentials, signal); }
+  catch (error) {
+    if (signal.aborted) throw new Error('Wayback capture did not complete within three minutes.');
+    throw error;
+  }
+}
+
+async function runCapture(sourceUrl, credentials, signal) {
   const headers = authenticatedHeaders(credentials);
   const parameters = new URLSearchParams({ url: sourceUrl, skip_first_archive: '1' });
   if (process.env.IA_EMAIL_RESULT !== '0') parameters.set('email_result', '1');
@@ -66,8 +88,7 @@ export async function saveAuthenticated(sourceUrl, credentials) {
       throw new Error(`Wayback reported a capture failure${reason}.`);
     }
     if (result.status !== 'pending') throw new Error('Wayback returned an unexpected capture status.');
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await sleep(5000, undefined, { signal });
   }
   throw new Error('Wayback capture did not complete within three minutes.');
 }
-import { setTimeout as sleep } from 'node:timers/promises';

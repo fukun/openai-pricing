@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
   schedule:
-    # 08:00 China Standard Time (UTC+8), every day.
-    - cron: "0 0 * * *"
+    # 08:17 China Standard Time (UTC+8), away from the hourly scheduling peak.
+    - cron: "17 0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -20,6 +20,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -68,6 +69,6 @@ jobs:
       - name: Publish site
         id: deployment
         uses: actions/deploy-pages@v5
-      - name: Report collection failure after publishing logs
+      - name: Report collection or archive failure after publishing logs
         if: steps.collection.outcome == 'failure'
         run: exit 1

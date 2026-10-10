@@ -3,7 +3,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { archiveSource, createArchiveSourceUrl, verifyArchive } from './provider_store.mjs';
+import { archiveSource, createArchiveSourceUrl, verifyArchive, readJsonLines, saveLog, writeJsonLines,
+  snapshotRowKey } from './provider_store.mjs';
 
 const PAGE_URL = 'https://developers.openai.com/api/docs/pricing?latest-pricing=batch';
 const ARCHIVE_PAGE_URL = 'https://developers.openai.com/api/docs/pricing.md';
@@ -148,22 +149,8 @@ async function getPrices() {
   return records;
 }
 
-async function readJsonLines(path) {
-  try {
-    const content = await readFile(path, 'utf8');
-    return content.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-  } catch (error) {
-    if (error.code === 'ENOENT') return [];
-    throw error;
-  }
-}
-
 async function writeCollectionLog(entry) {
-  const byDate = new Map((await readJsonLines(LOG_OUTPUT)).map((row) => [row.date_utc, row]));
-  byDate.set(entry.date_utc, entry);
-  const rows = [...byDate.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc));
-  await mkdir(dirname(LOG_OUTPUT), { recursive: true });
-  await writeFile(LOG_OUTPUT, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+  await saveLog(dirname(LOG_OUTPUT), entry);
 }
 
 function snapshotSignature(rows) {
@@ -248,13 +235,13 @@ try {
     const keyed = new Map();
     const retained = changed ? previousRows.filter((row) => row.date_utc !== date) : previousRows;
     for (const row of [...retained, ...snapshotRows]) {
-      const key = [row.date_utc, row.model, row.pricing_mode, JSON.stringify(row.table_headers)].join('\u0000');
+      const key = snapshotRowKey(row);
       keyed.set(key, row);
     }
     await mkdir(dirname(OUTPUT), { recursive: true });
     const history = [...keyed.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc)
       || a.model.localeCompare(b.model) || a.pricing_mode.localeCompare(b.pricing_mode));
-    await writeFile(OUTPUT, `${history.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+    await writeJsonLines(OUTPUT, history);
   }
   await writeCollectionLog({
     collected_at_utc: timestamp, date_utc: date, status: changed ? 'changed' : 'unchanged',

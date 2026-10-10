@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { PROVIDERS, PARSERS } from './pricing_sources.mjs';
 import { saveAuthenticated, waybackCredentials } from './wayback_api.mjs';
 
@@ -17,8 +17,53 @@ export function snapshotSignature(rows) {
   return JSON.stringify(values.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
 }
 
-async function writeJsonLines(file, rows) {
-  await writeFile(file, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+export async function writeJsonLines(file, rows) {
+  await mkdir(dirname(file), { recursive: true });
+  const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    await writeFile(temporary, rows.length ? `${rows.map((row) => JSON.stringify(row)).join('\n')}\n` : '', 'utf8');
+    await rename(temporary, file);
+  } finally { await rm(temporary, { force: true }); }
+}
+
+export function snapshotRowKey(row) {
+  return JSON.stringify([row.date_utc, row.model, row.model_version, row.source_model_label ?? row.model,
+    row.pricing_mode, row.pricing_tier, row.price_unit, row.price_units, row.table_headers]);
+}
+
+export function groupSnapshots(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!groups.has(row.date_utc)) groups.set(row.date_utc, []);
+    groups.get(row.date_utc).push(row);
+  }
+  return groups;
+}
+
+export async function restoreStoredSnapshots(provider, history, dataDirectory) {
+  const restoredDates = [];
+  const restored = [];
+  for (const [date, snapshot] of groupSnapshots(history)) {
+    const sourcePath = snapshot[0].source_snapshot;
+    if (!sourcePath) { restored.push(...snapshot); continue; }
+    let parsed;
+    try { parsed = PARSERS[provider](await readFile(resolve(dataDirectory, sourcePath.replace(/^data\//, '')), 'utf8')); }
+    catch (error) {
+      console.warn(`${PROVIDERS[provider].name}: could not restore saved source for ${date}: ${error.message}`);
+      restored.push(...snapshot);
+      continue;
+    }
+    if (snapshotSignature(parsed) === snapshotSignature(snapshot)) { restored.push(...snapshot); continue; }
+    // Recover complete price variants from the original captured document, keeping its date and archive metadata.
+    const fields = ['provider', 'date_utc', 'collected_at_utc', 'source_url', 'source_snapshot',
+      'archive_source_url', 'archive_status', 'wayback_url', 'candidate_archive_url', 'archive_checked_at_utc',
+      'archive_reused_from_date'];
+    const metadata = Object.fromEntries(fields.filter((key) => snapshot[0][key] !== undefined)
+      .map((key) => [key, snapshot[0][key]]));
+    restored.push(...parsed.map((row) => ({ ...metadata, ...row })));
+    restoredDates.push(date);
+  }
+  return { rows: restored, restoredDates };
 }
 
 export async function saveLog(directory, entry) {
@@ -91,7 +136,9 @@ async function verifyReplay(archiveUrl, sourceUrl, { provider, rows, source } = 
   if (canonicalTarget(capture[2] + url.search) !== expectedTarget) throw new Error('Wayback capture targets a different source URL.');
   const replayUrl = `https://web.archive.org/web/${capture[1]}id_/${capture[2]}${url.search}`;
   const replay = await fetch(replayUrl, { signal: AbortSignal.timeout(40_000) });
-  const actual = new URL(replay.url).pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
+  const replayLocation = new URL(replay.url);
+  if (replayLocation.hostname !== 'web.archive.org') throw new Error('Wayback replay redirects outside the archive service.');
+  const actual = replayLocation.pathname.match(/^\/web\/(\d{14})(?:[a-z_]+)?\/(.+)$/);
   if (!replay.ok || !actual) {
     const error = new Error('Wayback capture is not yet available at its requested timestamp.');
     error.code = 'WAYBACK_REPLAY_PENDING';
@@ -123,7 +170,8 @@ export async function recordCollection({ provider, rows, source, now = new Date(
   const directory = join(dataDirectory, provider);
   await mkdir(directory, { recursive: true });
   const file = join(directory, 'pricing_history.jsonl');
-  const previous = await readJsonLines(file);
+  const recovered = await restoreStoredSnapshots(provider, await readJsonLines(file), dataDirectory);
+  const previous = recovered.rows;
   const date = now.toISOString().slice(0, 10);
   const timestamp = now.toISOString();
   const latestDate = previous.reduce((latest, row) => row.date_utc > latest ? row.date_utc : latest, '');
@@ -162,11 +210,11 @@ export async function recordCollection({ provider, rows, source, now = new Date(
     archive_source_url: archiveSourceUrl,
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}) }));
   const archiveChanged = JSON.stringify(previousArchive) !== JSON.stringify(snapshot.map((row) => [row.archive_status, row.wayback_url, row.candidate_archive_url, row.archive_source_url]));
-  if (changed || archiveChanged) {
+  if (changed || archiveChanged || recovered.restoredDates.length) {
     const merged = new Map();
     const retained = changed ? previous.filter((row) => row.date_utc !== date) : previous;
     for (const row of [...retained, ...snapshot]) {
-      const key = JSON.stringify([row.date_utc, row.model, row.pricing_mode, row.pricing_tier ?? '', row.price_unit, row.table_headers]);
+      const key = snapshotRowKey(row);
       merged.set(key, row);
     }
     await writeJsonLines(file, [...merged.values()].sort((a, b) => a.date_utc.localeCompare(b.date_utc)
@@ -177,6 +225,7 @@ export async function recordCollection({ provider, rows, source, now = new Date(
     model_count: new Set(rows.map((row) => row.model)).size,
     model_order: [...new Set(rows.map((row) => row.model))], pricing_rows: changed ? rows.length : 0,
     latest_snapshot_date: changed ? date : latestDate, archive_status: archiveStatus, archive_source_url: archiveSourceUrl,
+    ...(recovered.restoredDates.length ? { restored_snapshot_dates: recovered.restoredDates } : {}),
     ...(waybackUrl ? { wayback_url: waybackUrl } : {}), ...(candidateUrl ? { candidate_archive_url: candidateUrl } : {}),
     ...(archiveError ? { archive_error: archiveError } : {}) };
   await saveLog(directory, log);
