@@ -143,7 +143,18 @@ export async function verifyArchive(archiveUrl, sourceUrl, options = {}) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try { return await verifyReplay(archiveUrl, sourceUrl, options); }
     catch (error) {
-      if (error.code !== 'WAYBACK_REPLAY_PENDING' || attempt === 2) throw error;
+      const networkFailure = error instanceof TypeError && error.message === 'fetch failed';
+      if (error.code !== 'WAYBACK_REPLAY_PENDING' && !networkFailure) throw error;
+      if (attempt === 2) {
+        // A transport failure says nothing about whether the capture is valid. Keep
+        // its URL for the next run instead of submitting the same page again.
+        if (networkFailure) {
+          const pending = new Error(error.message, { cause: error });
+          pending.code = 'WAYBACK_REPLAY_PENDING';
+          throw pending;
+        }
+        throw error;
+      }
       await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 2000));
     }
   }
