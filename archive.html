@@ -12,9 +12,10 @@
 <body>
   <nav><a id="back" href="./">返回价格历史</a><a id="official" hidden target="_blank" rel="noopener noreferrer">官方来源</a><a id="raw" hidden>查看原始文件</a></nav>
   <h1>官方价格原文 · 仓库归档</h1>
-  <p>以下为采集时保存的完整原文，不代表官网当前价格。HTML 原文以文本显示，避免执行归档中的脚本。</p>
+  <p>以下为采集时保存的官方内容，不代表官网当前价格。DeepSeek 以页面展示，其余来源展示原文；完整文件可通过“查看原始文件”打开。</p>
   <p id="metadata" role="status">正在加载归档…</p>
   <pre id="source" hidden></pre>
+  <iframe id="preview" title="DeepSeek 历史价格页面" sandbox referrerpolicy="no-referrer" hidden style="width:100%;height:80vh;border:1px solid #dce5dd;border-radius:12px;background:white"></iframe>
   <script type="module" src="archive.js"></script>
 </body>
 </html>
