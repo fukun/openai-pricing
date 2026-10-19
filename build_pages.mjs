@@ -8,6 +8,11 @@ import { PROVIDERS } from './pricing_sources.mjs';
 const root = dirname(fileURLToPath(import.meta.url));
 // Content versions let browsers load updated assets after a normal refresh.
 const version = (content) => createHash('sha256').update(content).digest('hex').slice(0, 12);
+const archivePagePath = join(root, 'archive.html');
+const previousArchivePage = await readFile(archivePagePath, 'utf8');
+const archiveVersion = version(await readFile(join(root, 'archive.js')));
+const archivePage = previousArchivePage.replace(/src="archive\.js(?:\?v=[a-f0-9]+)?"/, `src="archive.js?v=${archiveVersion}"`);
+if (archivePage !== previousArchivePage) await writeFile(archivePagePath, archivePage);
 const valuesVersion = version(await readFile(join(root, 'price_values.mjs')));
 const appPath = join(root, 'app.js');
 const previousApp = await readFile(appPath, 'utf8');
