@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "source_snapshot": "data/deepseek/sources/2026-10-18T04-36-23.347Z.html.txt",
+  "source_sha256": "38f583f627523f45a0cacd00d43ad49cd4f7e3aa5c20cc98bdbc3674f5c74c95",
+  "resources_saved_at_utc": "2026-10-19T07:37:35.784962+00:00",
+  "resources": [
+    {
+      "url": "https://api-docs.deepseek.com/img/favicon.svg",
+      "sha256": "0bf5e13ce954f13423a692f083f5cb0f4bcfde35c8b812f64efe89dabfdaed20",
+      "bytes": 3652
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg",
+      "sha256": "71493b4a732f0532b3a03a7a95da3ee11a65766367c8303b901ffbe7bf91a3a2",
+      "bytes": 2300
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/go/go-original-wordmark.svg",
+      "sha256": "d0400ee3d76ee43fa45e84a3b38b5710a9674969eb71af9d5bb59ed7916a3225",
+      "bytes": 1866
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/javascript/javascript-original.svg",
+      "sha256": "0656ff65fc8eeacda5c78d7f9ffe91ec1eb919db64f56e0b7dcd460af4bbd36c",
+      "bytes": 1144
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/bash/bash-plain.svg",
+      "sha256": "2682e6473d914a5107c60f2265887ac44e55226b88898bdbe61c38aed08860df",
+      "bytes": 1772
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/ruby/ruby-plain.svg",
+      "sha256": "5d68fd019984d3525ed667944b14efa8a37359cd21dcb8bf5e6969abdd48dd5f",
+      "bytes": 1905
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/csharp/csharp-original.svg",
+      "sha256": "7093478d0888e22a224b6fa832da6c9ffd14c433de8bd14aab0c1cb50925f3ee",
+      "bytes": 851
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/nodejs/nodejs-original.svg",
+      "sha256": "3218687c5ea24a4d4c0a33dc5c287da38c33a72dcfe9382469d7ce4e0bf661fb",
+      "bytes": 1806
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/php/php-original.svg",
+      "sha256": "f22619a19c99a123e4678d71826f65f223721a739631dff46de39827c9ee0633",
+      "bytes": 4624
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/java/java-original.svg",
+      "sha256": "7582e518a9c02425f97155e5a3bd39d1a3a7d421b78caf9c8df7443dad3edc5d",
+      "bytes": 1540
+    },
+    {
+      "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/windows8/windows8-original.svg",
+      "sha256": "cf87a5ec940b5a614adb31978da161e7a46a4fd0e11062fd7fe19d4ee29be200",
+      "bytes": 276
+    },
+    {
+      "url": "https://api-docs.deepseek.com/assets/css/styles.4bc59d28.css",
+      "sha256": "7a402f84b479f7737898617ae6b66645ddcc868116687a74040ffa57cf843141",
+      "bytes": 175584
+    },
+    {
+      "url": "https://api-docs.deepseek.com/img/logo-mark-light.svg",
+      "sha256": "4c9f37448a6d4133476d16e7aa3db699360d16d84118317586520c5aa77b46b5",
+      "bytes": 3629
+    },
+    {
+      "url": "https://api-docs.deepseek.com/img/logo-mark-dark.svg",
+      "sha256": "357e144b8f2a169a0edb8eb4ef6472c9a6d4b5b8aa945561a61b09bed133e38d",
+      "bytes": 3629
+    },
+    {
+      "url": "https://cdn.deepseek.com/official_account.jpg",
+      "sha256": "a4c434c871c61b82a9c9377ff0917aeffb9bf33781237de581e0bf07493d63cc",
+      "bytes": 64255
+    },
+    {
+      "url": "https://api-docs.deepseek.com/assets/css/styles.9cde8b01.css",
+      "sha256": "f7973fcf6f6f07c0da734d09d501378ae3a3fef57af6bbcbd35788e239644961",
+      "bytes": 177173
+    }
+  ],
+  "mode": "offline-reading"
+}

@@ -35,7 +35,9 @@ jobs:
       - name: Build provider pages
         run: node build_pages.mjs
       - name: Check pricing parsers and history storage
-        run: node --test tests/pricing.test.mjs
+        run: |
+          node --test tests/pricing.test.mjs
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Collect all four providers
         id: collection
         continue-on-error: true
@@ -72,5 +74,5 @@ jobs:
       - name: Report collection or archive failure after publishing logs
         if: steps.collection.outcome == 'failure'
         run: |
-          echo '::error::Pricing collection or archive verification failed. See the Pricing collection table in the job summary and the Collect all four providers step for provider-specific errors. Data and Pages publishing completed before this check.'
+          echo '::error::Pricing collection, archive verification or offline backup failed. See the job summary and the Collect all four providers step for details. Data and Pages publishing completed before this check.'
           exit 1

@@ -8,12 +8,14 @@ process.env.COLLECTION_STARTED_AT_UTC = new Date().toISOString();
 let firstProvider = true;
 // Every provider is attempted even if another source is unavailable.
 for (const [script, ...args] of [['collect_pricing.mjs'], ['collect_providers.mjs', 'deepseek'],
-  ['collect_providers.mjs', 'claude'], ['collect_providers.mjs', 'gemini'], ['repair_archives.mjs']]) {
+  ['collect_providers.mjs', 'claude'], ['collect_providers.mjs', 'gemini'], ['repair_archives.mjs'], ['offline_archive.py']]) {
   // Space requests across providers to avoid Save Page Now rate limits.
   if (!firstProvider) await new Promise((resolve) => setTimeout(resolve, 30_000));
   firstProvider = false;
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [...process.execArgv, join(root, script), ...args], { stdio: 'inherit' });
+    const child = script.endsWith('.py')
+      ? spawn('python3', [join(root, script), ...args], { stdio: 'inherit' })
+      : spawn(process.execPath, [...process.execArgv, join(root, script), ...args], { stdio: 'inherit' });
     child.once('error', reject);
     child.once('exit', (code) => resolve(code ?? 1));
   });
