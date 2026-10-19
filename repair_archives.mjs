@@ -14,6 +14,7 @@ const today = now.toISOString().slice(0, 10);
 // Bound the backlog processed during one collection; remaining dates stay visible in the report.
 let remainingRepairs = 3;
 const summary = [];
+const summaryCell = (value) => String(value).replaceAll('|', '&#124;').replace(/[\r\n]+/g, ' ');
 
 const isSaved = (snapshot) => snapshot.every((row) => row.archive_status === 'saved' && row.wayback_url);
 const normalizedSource = (source) => source.replaceAll('\r\n', '\n').trim();
@@ -125,15 +126,17 @@ for (const [provider, config] of Object.entries(configs)) {
   }
   await saveLog(directory, { ...dailyLog, ...runMetadata,
     archive_repair: { repaired_dates: repairedDates, pending_dates: pendingDates, errors } });
-  summary.push(`| ${config.name} | ${dailyLog.status} | ${dailyLog.model_count ?? 0} | ${repairedDates.length} | ${pendingDates.length} |`);
+  const details = [...new Set([dailyLog.error, dailyLog.archive_error,
+    ...errors.map((entry) => `${entry.date_utc}: ${entry.error}`)].filter(Boolean))];
+  summary.push(`| ${config.name} | ${dailyLog.status} | ${dailyLog.model_count ?? 0} | ${repairedDates.length} | ${pendingDates.length} | ${summaryCell(details.join('; ') || '—')} |`);
   if (dailyLog.status === 'failed' || pendingDates.length) process.exitCode = 1;
   } catch (error) {
     console.error(`${config.name}: archive repair/report failed: ${error.message}`);
-    summary.push(`| ${config.name} | repair/report failed | — | — | — |`);
+    summary.push(`| ${config.name} | repair/report failed | — | — | — | ${summaryCell(error.message)} |`);
     process.exitCode = 1;
   }
 }
-const report = ['## Pricing collection', '', '| Provider | Collection | Models | Archives repaired | Pending snapshot dates |',
-  '| --- | --- | ---: | ---: | ---: |', ...summary].join('\n');
+const report = ['## Pricing collection', '', '| Provider | Collection | Models | Archives repaired | Pending snapshot dates | Details |',
+  '| --- | --- | ---: | ---: | ---: | --- |', ...summary].join('\n');
 console.log(report);
 if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `${report}\n`);

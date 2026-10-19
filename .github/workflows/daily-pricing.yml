@@ -71,4 +71,6 @@ jobs:
         uses: actions/deploy-pages@v5
       - name: Report collection or archive failure after publishing logs
         if: steps.collection.outcome == 'failure'
-        run: exit 1
+        run: |
+          echo '::error::Pricing collection or archive verification failed. See the Pricing collection table in the job summary and the Collect all four providers step for provider-specific errors. Data and Pages publishing completed before this check.'
+          exit 1

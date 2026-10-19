@@ -71,8 +71,10 @@ export function parseClaude(markdown) {
       .replace(/^input(?: tokens)?$/i, 'Input').replace(/^output(?: tokens)?$/i, 'Output'));
     for (const values of table.rows) {
       const sourceLabel = values[0];
-      if (!/^Claude\s/.test(sourceLabel) || !values.slice(1).every((value) => /^\$[\d.]+\s*\/\s*MTok/.test(value))) {
-        throw new Error(`Unexpected Claude ${mode} pricing row: ${sourceLabel}`);
+      const invalidPrice = values.slice(1).findIndex((value) => !/^\$\d+(?:\.\d+)?\s*(?:USD\s*)?\/\s*MTok\b/.test(value));
+      if (!/^Claude\s/.test(sourceLabel) || invalidPrice !== -1) {
+        const detail = invalidPrice === -1 ? '' : `; ${headers[invalidPrice + 1]}: ${values[invalidPrice + 1]}`;
+        throw new Error(`Unexpected Claude ${mode} pricing row: ${sourceLabel}${detail}`);
       }
       for (const label of sourceLabel.split(/\s+\/\s+(?=Claude)/)) {
         const model = label.replace(/\s+\([^)]*\)/g, '').trim();

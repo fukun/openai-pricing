@@ -41,6 +41,16 @@ test('Claude handles official annotations, all model rows, and shared fast-price
   assert.match(rows[0].source_model_label, /retired/);
   assert.deepEqual(rows[0].table_headers, [['Model', 'Input', 'Output']]);
   assert.equal(rows.filter((row) => row.pricing_mode === 'Fast').length, 2);
+  // Official Fast prices now explicitly include USD; preserve the source text.
+  const explicitCurrency = markdown.replace('$2 / MTok | $10 / MTok', '$8 USD / MTok | $40 USD / MTok');
+  const fastRows = parseClaude(explicitCurrency).filter((row) => row.pricing_mode === 'Fast');
+  assert.equal(fastRows.length, 2);
+  assert.deepEqual(fastRows[0].prices, ['Claude Test 1', '$8 USD / MTok', '$40 USD / MTok']);
+  assert.equal(numericPrice(fastRows[0].prices[1]), 8);
+  for (const invalid of ['$8 EUR / MTok', '$8 USD / request', 'TBD', '$.. / MTok']) {
+    assert.throws(() => parseClaude(explicitCurrency.replace('$8 USD / MTok', invalid)),
+      (error) => error.message.includes('Claude Fast pricing row: Claude Test 1 / Claude Test 2; Input: ' + invalid));
+  }
   assert.throws(() => parseClaude(markdown.replace('### Batch processing', '### Missing')), /Missing official/);
 });
 
