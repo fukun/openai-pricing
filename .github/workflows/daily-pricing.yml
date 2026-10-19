@@ -60,7 +60,7 @@ jobs:
       - name: Prepare static site
         run: |
           mkdir -p dist
-          cp index.html app.js styles.css price_values.mjs dist/
+          cp index.html app.js styles.css price_values.mjs archive.html archive.js dist/
           cp -R data deepseek claude gemini dist/
       - name: Upload static site
         uses: actions/upload-pages-artifact@v5

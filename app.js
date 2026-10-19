@@ -217,12 +217,25 @@ function renderList(rows) {
       link.href = row.wayback_url;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.textContent = '查看';
+      link.textContent = 'Wayback';
       archive.append(link);
     } else {
       archive.className = 'date-cell';
       archive.textContent = ['pending', 'verifying'].includes(row.archive_status) ? '归档待重试' : '—';
       if (['pending', 'verifying'].includes(row.archive_status)) archive.title = '价格数据已保存，但尚未得到与该快照一致的 Wayback 归档。后续采集会重试，不使用旧版本链接。';
+    }
+    if (row.source_snapshot) {
+      const local = document.createElement('a');
+      local.className = 'archive-link';
+      const url = new URL('archive.html', SITE_ROOT);
+      url.searchParams.set('source', row.source_snapshot);
+      local.href = url;
+      local.target = '_blank';
+      local.rel = 'noopener noreferrer';
+      local.textContent = '仓库归档';
+      local.title = '查看采集时保存的完整官方原文；Wayback 无法访问时可使用此入口。';
+      if (!row.wayback_url) archive.replaceChildren(local);
+      else archive.append(document.createElement('br'), local);
     }
     if (IS_OPENAI) tr.append(date, model, mode, renderPriceCell(false), renderPriceCell(true), archive);
     else tr.append(date, model, mode, renderPriceCell(null), archive);

@@ -44,7 +44,7 @@ for (const [provider, config] of Object.entries(PROVIDERS)) {
     .replace('<small>GPT-5 及以上</small>', '<small>官方价格页全部模型</small>')
     .replace('<small>Standard + Batch</small>', '<small>各价格类型</small>')
     .replace('<option>Standard</option><option>Batch</option>', '')
-    .replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><th>日期</th><th>模型</th><th>类型</th><th>价格明细 <button type="button" class="price-help" data-price-help aria-label="价格说明">?</button></th><th>Wayback</th></tr></thead>')
+    .replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><th>日期</th><th>模型</th><th>类型</th><th>价格明细 <button type="button" class="price-help" data-price-help aria-label="价格说明">?</button></th><th>归档</th></tr></thead>')
     .replace('colspan="6"', 'colspan="5"')
     .replace('比较模型在所选价格类型和价格列下的每日变化', '比较单一数值的价格变化；多条件复合价格请查看列表明细');
   await mkdir(join(root, provider), { recursive: true });
